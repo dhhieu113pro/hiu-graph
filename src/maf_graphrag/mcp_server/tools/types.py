@@ -1,9 +1,4 @@
-"""
-Shared type definitions and error handling for MCP tool responses.
-
-Provides TypedDicts that document the structure of dicts returned by MCP tools,
-improving type safety at the API boundary.
-"""
+"""Shared type definitions and error handling for MCP tool responses."""
 
 import functools
 import logging
@@ -21,8 +16,6 @@ VALID_COMMUNITY_LEVELS = range(0, 5)
 
 
 class SearchContext(TypedDict):
-    """Context metadata returned by legacy generative search tools."""
-
     entities_used: NotRequired[int]
     relationships_used: NotRequired[int]
     reports_used: NotRequired[int]
@@ -31,8 +24,6 @@ class SearchContext(TypedDict):
 
 
 class SearchResult(TypedDict):
-    """Legacy successful response from generative local/global search tools."""
-
     answer: str
     context: SearchContext
     sources: NotRequired[list[dict[str, Any]]]
@@ -80,6 +71,20 @@ class RelationshipInfo(TypedDict):
 class RelationshipResult(TypedDict):
     entity: str
     relationships: list[RelationshipInfo]
+    returned: int
+    query_type: str
+
+
+class SourceInfo(TypedDict):
+    text_unit_id: str
+    document_id: NotRequired[str]
+    document_title: NotRequired[str]
+    text_preview: NotRequired[str]
+
+
+class SourceResult(TypedDict):
+    sources: list[SourceInfo]
+    missing_ids: list[str]
     returned: int
     query_type: str
 
