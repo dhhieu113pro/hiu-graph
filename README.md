@@ -92,7 +92,7 @@ docker run --rm -p 8011:8011 `
 
 On startup the container checks the GraphRAG index. If all required index
 artifacts are already present, MCP starts immediately. If the index is missing
-or an empty `/app/output` volume hides the baked index, Hiu Graph waits for
+or an empty `/app/output` mount hides the baked index, Hiu Graph waits for
 `LLAMA_CPP_BASE_URL`, builds the index from `/app/input`, verifies the generated
 artifacts, and only then starts MCP.
 
@@ -101,8 +101,8 @@ and for GraphRAG queries. The container does not bundle a GGUF model.
 `HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS` controls how long first-run startup waits
 for llama.cpp and defaults to `300` seconds.
 
-To persist a first-run generated index and model-independent caches across
-container recreation, use named volumes:
+To persist the index and model-independent caches across container recreation,
+use named volumes:
 
 ```powershell
 docker run --rm -p 8011:8011 `
@@ -114,9 +114,22 @@ docker run --rm -p 8011:8011 `
   ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
 
-The first run with a new `hiu-graph-output` volume performs indexing. Later
-runs reuse that volume and skip indexing as long as the required GraphRAG
-artifacts remain complete.
+Docker may initialize a new named `/app/output` volume from the index already
+baked into the image. To explicitly start with an empty persistent output and
+exercise first-run indexing, use `volume-nocopy`:
+
+```powershell
+docker run --rm -p 8011:8011 `
+  -e LLAMA_CPP_BASE_URL=http://host.docker.internal:8080 `
+  -e LLAMA_CPP_MODEL_NAME=local-gemma `
+  --mount type=volume,src=hiu-graph-output,dst=/app/output,volume-nocopy `
+  -v hiu-graph-cache:/app/cache `
+  -v hiu-graph-fastembed:/data/fastembed `
+  ghcr.io/dhhieu113pro/hiu-graph:latest
+```
+
+The first run with a truly empty `/app/output` builds the index. Later runs
+reuse the generated artifacts and skip indexing.
 
 ## Layout
 
