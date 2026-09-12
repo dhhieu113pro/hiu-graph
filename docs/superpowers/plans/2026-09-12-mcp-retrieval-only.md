@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Hiu Graph's generative MCP query surface with five retrieval-only tools that use FastEmbed, LanceDB, and Parquet data and work after indexing with llama.cpp completely unavailable.
+**Goal:** Replace Hiu Graph's generative MCP query surface with five retrieval-only tools that use FastEmbed, LanceDB, and Parquet data and continue to work after indexing when llama.cpp is unavailable.
 
-**Architecture:** Keep GraphRAG indexing and `src/maf_graphrag/core/search.py` unchanged for non-MCP generative flows. Add a small MCP retrieval layer with a cached FastEmbed query encoder and a focused LanceDB adapter, then expose exactly `semantic_search`, `search_entities`, `get_entity`, `get_relationships`, and `get_sources`. Decouple MCP index-data loading from completion-model configuration so existing indexes can be queried without `LLAMA_CPP_*` settings.
+**Architecture:** Keep GraphRAG indexing and `src/maf_graphrag/core/search.py` unchanged for non-MCP generative flows. Add an MCP retrieval layer containing a cached FastEmbed query encoder and a focused LanceDB adapter, then expose exactly `semantic_search`, `search_entities`, `get_entity`, `get_relationships`, and `get_sources`. Decouple MCP index-data loading from completion-model configuration so querying an existing index never requires `LLAMA_CPP_*` settings.
 
 **Tech Stack:** Python 3.11/3.12, FastMCP 4.x, FastEmbed 0.8.x, LanceDB, pandas/Parquet, GraphRAG 3.0.9, pytest 9.x, ruff, mypy.
 
@@ -18,23 +18,23 @@
 - Remove `search_knowledge_graph`, `local_search`, `global_search`, and `list_entities` from the public MCP surface.
 - Keep `src/maf_graphrag/core/search.py` generative helpers available for chat and explicit non-MCP flows.
 - `FASTEMBED_MODEL_NAME` defaults to `BAAI/bge-small-en-v1.5`.
-- `FASTEMBED_CACHE_DIR` defaults to `.cache/fastembed`; Docker may continue using `/data/fastembed`.
-- Query-time embeddings and index-time embeddings must use the same environment-backed FastEmbed model name.
-- With a valid index, MCP must start and all five tools must work when `LLAMA_CPP_BASE_URL` and `LLAMA_CPP_MODEL` are absent or point to an unreachable server.
-- Retrieval responses return structured evidence only; no response type contains an LLM-generated `answer` field.
-- Use TDD: add a failing test, run it, implement the smallest production change, then rerun the focused tests before each commit.
+- `FASTEMBED_CACHE_DIR` defaults to `.cache/fastembed`; Docker uses `/data/fastembed`.
+- Query-time and index-time embeddings must use the same environment-backed FastEmbed model name.
+- With a valid index, MCP must start and all five tools must work when `LLAMA_CPP_BASE_URL` and `LLAMA_CPP_MODEL` are absent or unreachable.
+- Retrieval responses return structured evidence only; no MCP retrieval response contains an LLM-generated `answer` field.
+- Use TDD for every production change.
 
 ---
 
 ## File Structure
 
-**Create:**
+**Create**
 - `src/maf_graphrag/mcp_server/retrieval/__init__.py` — retrieval-layer exports.
 - `src/maf_graphrag/mcp_server/retrieval/query_encoder.py` — cached FastEmbed query encoder.
-- `src/maf_graphrag/mcp_server/retrieval/vector_store.py` — all raw LanceDB access and score normalization.
-- `src/maf_graphrag/mcp_server/tools/retrieval_search.py` — `semantic_search_tool` and `search_entities_tool`.
+- `src/maf_graphrag/mcp_server/retrieval/vector_store.py` — raw LanceDB access and score normalization.
+- `src/maf_graphrag/mcp_server/tools/retrieval_search.py` — semantic text/entity retrieval tools.
 - `src/maf_graphrag/mcp_server/tools/relationships.py` — direct graph-edge traversal.
-- `src/maf_graphrag/mcp_server/tools/sources.py` — direct source/text-unit resolution by IDs.
+- `src/maf_graphrag/mcp_server/tools/sources.py` — direct text-unit/source lookup.
 - `tests/mcp_server/retrieval/test_query_encoder.py`.
 - `tests/mcp_server/retrieval/test_vector_store.py`.
 - `tests/mcp_server/tools/test_retrieval_search.py`.
@@ -42,26 +42,18 @@
 - `tests/mcp_server/tools/test_sources.py`.
 - `tests/mcp_server/test_no_llm_runtime.py`.
 
-**Modify:**
-- `settings.yaml` — read FastEmbed model/cache from shared environment variables.
-- `.env.example` — document FastEmbed model/cache variables.
-- `Dockerfile` — set the default FastEmbed model name alongside the existing Docker cache location.
-- `src/maf_graphrag/core/config.py` — provide shared FastEmbed defaults/helpers and allow output validation without loading completion config.
-- `src/maf_graphrag/core/data_loader.py` — validate the explicit `output_dir` passed by MCP instead of falling back through `get_config()`.
-- `src/maf_graphrag/mcp_server/config.py` — expose the resolved MCP output/LanceDB paths without completion-model settings.
-- `src/maf_graphrag/mcp_server/tools/_data_cache.py` — load cached Parquet data from MCP's explicit output directory.
-- `src/maf_graphrag/mcp_server/tools/types.py` — retrieval response TypedDicts.
-- `src/maf_graphrag/mcp_server/tools/__init__.py` — export only current tool helpers.
-- `src/maf_graphrag/mcp_server/server.py` — register exactly the five retrieval-only MCP tools.
-- `src/maf_graphrag/agents/factories.py` — update MCP tool description so the chat agent knows MCP returns evidence rather than generated answers.
-- `tests/mcp_server/test_config.py` — runtime-path and no-LLM-env coverage.
-- `tests/mcp_server/test_server.py` — new tool dispatch and advertised-tool coverage.
-- `tests/mcp_server/tools/test_data_cache.py` — explicit-output-dir/no-completion-config coverage.
-- `tests/mcp_server/tools/test_entity_query.py` — retain `get_entity` helper coverage; remove assumptions that `list_entities` is a public MCP tool.
-- `README.md` and `src/maf_graphrag/mcp_server/README.md` — migration and runtime docs.
-- `pyproject.toml` and `uv.lock` — add LanceDB as a direct dependency because MCP code imports it directly.
+**Modify**
+- `settings.yaml`, `.env.example`, `Dockerfile` — shared FastEmbed configuration.
+- `src/maf_graphrag/core/config.py`, `src/maf_graphrag/core/data_loader.py` — explicit output-path validation without completion config.
+- `src/maf_graphrag/mcp_server/config.py`, `src/maf_graphrag/mcp_server/tools/_data_cache.py` — MCP-owned output/LanceDB paths.
+- `src/maf_graphrag/mcp_server/tools/types.py`, `src/maf_graphrag/mcp_server/tools/__init__.py` — retrieval response contracts and exports.
+- `src/maf_graphrag/mcp_server/server.py` — exact five-tool MCP surface.
+- `src/maf_graphrag/agents/factories.py` — MCP description reflects evidence retrieval.
+- `tests/mcp_server/test_config.py`, `tests/mcp_server/test_server.py`, `tests/mcp_server/tools/test_data_cache.py`, `tests/mcp_server/tools/test_entity_query.py`.
+- `README.md`, `src/maf_graphrag/mcp_server/README.md`.
+- `pyproject.toml`, `uv.lock` — direct LanceDB dependency.
 
-**Delete:**
+**Delete**
 - `src/maf_graphrag/mcp_server/tools/local_search.py`.
 - `src/maf_graphrag/mcp_server/tools/global_search.py`.
 - `tests/mcp_server/tools/test_local_search.py`.
@@ -69,7 +61,7 @@
 
 ---
 
-### Task 1: Decouple MCP Index Loading From Completion-Model Configuration
+### Task 1: Decouple MCP Index Loading From Completion Configuration
 
 **Files:**
 - Modify: `src/maf_graphrag/core/config.py`
@@ -80,15 +72,13 @@
 - Modify: `tests/mcp_server/tools/test_data_cache.py`
 
 **Interfaces:**
-- Produces: `get_fastembed_model_name() -> str`
-- Produces: `get_fastembed_cache_dir() -> str`
-- Changes: `validate_output_files(required: list[str] | None = None, output_dir: Path | None = None) -> bool`
-- Changes: `get_graph_data(output_dir: Path | None = None) -> GraphData`
-- Produces: `MCPConfig.lancedb_dir: Path` property returning `output_dir / "lancedb"`
+- Produces `get_fastembed_model_name() -> str`.
+- Produces `get_fastembed_cache_dir() -> str`.
+- Changes `validate_output_files(required: list[str] | None = None, output_dir: Path | None = None) -> bool`.
+- Changes `get_graph_data(output_dir: Path | None = None) -> GraphData`.
+- Produces `MCPConfig.lancedb_dir: Path`.
 
-- [ ] **Step 1: Write failing tests for explicit output paths and missing llama.cpp environment variables**
-
-Add tests that remove completion settings and prove MCP data loading can use a supplied output directory:
+- [ ] **Step 1: Write failing tests proving an explicit MCP output path does not require llama.cpp configuration**
 
 ```python
 from pathlib import Path
@@ -112,37 +102,31 @@ def test_get_graph_data_uses_explicit_output_without_llama_env(tmp_path, monkeyp
     _write_required_parquet(output_dir)
 
     from maf_graphrag.mcp_server.tools import _data_cache
-    _data_cache._cached_data = None
 
+    _data_cache._cached_data = None
     data = _data_cache.get_graph_data(output_dir)
 
     assert data.entities.iloc[0]["title"] == "Alpha"
-```
 
-Also test:
 
-```python
 def test_mcp_config_exposes_lancedb_dir(tmp_path):
     from maf_graphrag.mcp_server.config import MCPConfig
 
     config = MCPConfig(graphrag_root=tmp_path, output_dir=Path("output"))
-
     assert config.lancedb_dir == (tmp_path / "output" / "lancedb").resolve()
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run the tests and verify RED**
 
 ```bash
 uv run pytest tests/mcp_server/test_config.py tests/mcp_server/tools/test_data_cache.py -q
 ```
 
-Expected: at least the new explicit-output/no-LLM test fails because `load_all(validate=True)` ultimately calls `validate_output_files()` without the supplied path, and `MCPConfig.lancedb_dir` does not exist yet.
+Expected: the new tests fail because validation still falls through `get_output_dir()`/`get_config()` and `lancedb_dir` does not exist.
 
-- [ ] **Step 3: Add shared FastEmbed defaults and explicit output validation**
+- [ ] **Step 3: Implement explicit output validation and shared FastEmbed defaults**
 
-In `core/config.py`, add:
+In `core/config.py`:
 
 ```python
 DEFAULT_FASTEMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
@@ -150,34 +134,35 @@ DEFAULT_FASTEMBED_CACHE_DIR = ".cache/fastembed"
 
 
 def get_fastembed_model_name() -> str:
-    return os.getenv("FASTEMBED_MODEL_NAME", DEFAULT_FASTEMBED_MODEL_NAME).strip() or DEFAULT_FASTEMBED_MODEL_NAME
+    value = os.getenv("FASTEMBED_MODEL_NAME", DEFAULT_FASTEMBED_MODEL_NAME).strip()
+    return value or DEFAULT_FASTEMBED_MODEL_NAME
 
 
 def get_fastembed_cache_dir() -> str:
-    return os.getenv("FASTEMBED_CACHE_DIR", DEFAULT_FASTEMBED_CACHE_DIR).strip() or DEFAULT_FASTEMBED_CACHE_DIR
+    value = os.getenv("FASTEMBED_CACHE_DIR", DEFAULT_FASTEMBED_CACHE_DIR).strip()
+    return value or DEFAULT_FASTEMBED_CACHE_DIR
 ```
 
-At the beginning of `get_config()`, make the defaults available for `settings.yaml` interpolation without requiring callers to set them:
+At the start of `get_config()`:
 
 ```python
 os.environ.setdefault("FASTEMBED_MODEL_NAME", get_fastembed_model_name())
 os.environ.setdefault("FASTEMBED_CACHE_DIR", get_fastembed_cache_dir())
 ```
 
-Change validation to respect an explicit path:
+Change validation to:
 
 ```python
 def validate_output_files(required: list[str] | None = None, output_dir: Path | None = None) -> bool:
-    if required is None:
-        required = [
-            "entities.parquet",
-            "relationships.parquet",
-            "communities.parquet",
-            "community_reports.parquet",
-            "text_units.parquet",
-        ]
-    resolved_output_dir = output_dir if output_dir is not None else get_output_dir()
-    missing = [name for name in required if not (resolved_output_dir / name).exists()]
+    required_files = required or [
+        "entities.parquet",
+        "relationships.parquet",
+        "communities.parquet",
+        "community_reports.parquet",
+        "text_units.parquet",
+    ]
+    resolved = output_dir if output_dir is not None else get_output_dir()
+    missing = [name for name in required_files if not (resolved / name).exists()]
     if missing:
         raise FileNotFoundError(
             f"Missing required output files: {', '.join(missing)}\n"
@@ -186,14 +171,14 @@ def validate_output_files(required: list[str] | None = None, output_dir: Path | 
     return True
 ```
 
-In `data_loader.load_all`, use the already-resolved directory:
+In `load_all()`:
 
 ```python
 if validate:
     validate_output_files(output_dir=output_dir)
 ```
 
-- [ ] **Step 4: Make MCP data cache resolve its own output path**
+- [ ] **Step 4: Make MCP resolve its own data paths**
 
 In `_data_cache.py`:
 
@@ -211,7 +196,7 @@ def get_graph_data(output_dir: Path | None = None) -> GraphData:
     return _cached_data
 ```
 
-In `MCPConfig` add:
+In `MCPConfig`:
 
 ```python
 @property
@@ -221,15 +206,13 @@ def lancedb_dir(self) -> Path:
 
 - [ ] **Step 5: Run focused tests and verify GREEN**
 
-Run:
-
 ```bash
 uv run pytest tests/mcp_server/test_config.py tests/mcp_server/tools/test_data_cache.py -q
 ```
 
-Expected: all tests pass with `LLAMA_CPP_BASE_URL` and `LLAMA_CPP_MODEL` absent in the new regression case.
+Expected: all focused tests pass with `LLAMA_CPP_BASE_URL` and `LLAMA_CPP_MODEL` absent.
 
-- [ ] **Step 6: Commit the runtime-decoupling change**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/maf_graphrag/core/config.py src/maf_graphrag/core/data_loader.py src/maf_graphrag/mcp_server/config.py src/maf_graphrag/mcp_server/tools/_data_cache.py tests/mcp_server/test_config.py tests/mcp_server/tools/test_data_cache.py
@@ -238,7 +221,7 @@ git commit -m "refactor: decouple MCP data loading from llama config"
 
 ---
 
-### Task 2: Share FastEmbed Configuration Between Indexing and MCP
+### Task 2: Share FastEmbed Configuration and Add the Query Encoder
 
 **Files:**
 - Modify: `settings.yaml`
@@ -249,9 +232,9 @@ git commit -m "refactor: decouple MCP data loading from llama config"
 - Create: `tests/mcp_server/retrieval/test_query_encoder.py`
 
 **Interfaces:**
-- Consumes: `get_fastembed_model_name() -> str`, `get_fastembed_cache_dir() -> str`
-- Produces: `FastEmbedQueryEncoder.encode(text: str) -> list[float]`
-- Produces: `get_query_encoder() -> FastEmbedQueryEncoder`, cached once per process
+- Consumes `get_fastembed_model_name()` and `get_fastembed_cache_dir()`.
+- Produces `FastEmbedQueryEncoder.encode(text: str) -> list[float]`.
+- Produces cached `get_query_encoder() -> FastEmbedQueryEncoder`.
 
 - [ ] **Step 1: Write failing query-encoder tests**
 
@@ -262,9 +245,10 @@ from unittest.mock import MagicMock, patch
 def test_query_encoder_uses_shared_fastembed_settings(monkeypatch):
     monkeypatch.setenv("FASTEMBED_MODEL_NAME", "BAAI/bge-small-en-v1.5")
     monkeypatch.setenv("FASTEMBED_CACHE_DIR", "/tmp/fastembed-test")
-
+    fake_vector = MagicMock()
+    fake_vector.tolist.return_value = [0.1, 0.2, 0.3]
     fake_model = MagicMock()
-    fake_model.embed.return_value = [MagicMock(tolist=lambda: [0.1, 0.2, 0.3])]
+    fake_model.embed.return_value = [fake_vector]
 
     with patch("maf_graphrag.mcp_server.retrieval.query_encoder.TextEmbedding", return_value=fake_model) as ctor:
         from maf_graphrag.mcp_server.retrieval.query_encoder import FastEmbedQueryEncoder
@@ -274,32 +258,30 @@ def test_query_encoder_uses_shared_fastembed_settings(monkeypatch):
     ctor.assert_called_once_with(model_name="BAAI/bge-small-en-v1.5", cache_dir="/tmp/fastembed-test")
     fake_model.embed.assert_called_once_with(["hello"])
     assert vector == [0.1, 0.2, 0.3]
-```
 
-Add a singleton test:
 
-```python
 def test_get_query_encoder_is_cached():
     from maf_graphrag.mcp_server.retrieval import query_encoder
 
+    fake_model = MagicMock()
     query_encoder.get_query_encoder.cache_clear()
-    first = query_encoder.get_query_encoder()
-    second = query_encoder.get_query_encoder()
+    with patch("maf_graphrag.mcp_server.retrieval.query_encoder.TextEmbedding", return_value=fake_model) as ctor:
+        first = query_encoder.get_query_encoder()
+        second = query_encoder.get_query_encoder()
 
     assert first is second
+    ctor.assert_called_once()
 ```
 
-- [ ] **Step 2: Run query-encoder tests and verify RED**
+- [ ] **Step 2: Run tests and verify RED**
 
 ```bash
 uv run pytest tests/mcp_server/retrieval/test_query_encoder.py -q
 ```
 
-Expected: import failure because the retrieval/query-encoder module does not exist.
+Expected: import failure because the retrieval package does not exist.
 
-- [ ] **Step 3: Implement the minimal cached query encoder**
-
-Create `query_encoder.py`:
+- [ ] **Step 3: Implement the cached encoder**
 
 ```python
 from functools import lru_cache
@@ -326,11 +308,11 @@ def get_query_encoder() -> FastEmbedQueryEncoder:
     return FastEmbedQueryEncoder()
 ```
 
-Export `FastEmbedQueryEncoder` and `get_query_encoder` from `retrieval/__init__.py`.
+Export both symbols from `retrieval/__init__.py`.
 
-- [ ] **Step 4: Parameterize the indexing config with the same environment values**
+- [ ] **Step 4: Parameterize index-time FastEmbed settings with the same variables**
 
-Change `settings.yaml` embedding section from hard-coded values to:
+In `settings.yaml`:
 
 ```yaml
 embedding_models:
@@ -342,30 +324,30 @@ embedding_models:
     batch_size: 64
 ```
 
-Add to `.env.example`:
+In `.env.example`:
 
 ```dotenv
 FASTEMBED_MODEL_NAME=BAAI/bge-small-en-v1.5
 FASTEMBED_CACHE_DIR=.cache/fastembed
 ```
 
-Add to Docker `ENV`:
+In Docker `ENV`:
 
 ```dockerfile
 FASTEMBED_MODEL_NAME=BAAI/bge-small-en-v1.5 \
 FASTEMBED_CACHE_DIR=/data/fastembed
 ```
 
-- [ ] **Step 5: Run tests and configuration smoke test**
+- [ ] **Step 5: Run tests and smoke-check the default**
 
 ```bash
 uv run pytest tests/mcp_server/retrieval/test_query_encoder.py tests/core/test_config.py -q
 uv run python -c "from maf_graphrag.core.config import get_fastembed_model_name; assert get_fastembed_model_name() == 'BAAI/bge-small-en-v1.5'"
 ```
 
-Expected: tests pass; command exits 0.
+Expected: all tests pass and the smoke command exits 0.
 
-- [ ] **Step 6: Commit shared embedding configuration**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add settings.yaml .env.example Dockerfile src/maf_graphrag/mcp_server/retrieval tests/mcp_server/retrieval/test_query_encoder.py
@@ -383,54 +365,65 @@ git commit -m "feat: share FastEmbed config with MCP retrieval"
 - Create: `tests/mcp_server/retrieval/test_vector_store.py`
 
 **Interfaces:**
-- Produces: `VectorMatch(id: str, score: float)` dataclass
-- Produces: `LanceDbVectorStore(db_path: Path)`
-- Produces: `LanceDbVectorStore.search(table_name: str, vector: list[float], limit: int) -> list[VectorMatch]`
-- Score contract: `score = 1.0 / (1.0 + max(distance, 0.0))`, so larger is always better.
+- Produces `VectorMatch(id: str, score: float)`.
+- Produces `LanceDbVectorStore.search(table_name: str, vector: list[float], limit: int) -> list[VectorMatch]`.
+- Normalizes `_distance` as `1.0 / (1.0 + max(distance, 0.0))` so larger means more relevant.
 
 - [ ] **Step 1: Add LanceDB as a direct dependency**
-
-Run:
 
 ```bash
 uv add lancedb
 ```
 
-Expected: `pyproject.toml` gains a direct `lancedb` dependency and `uv.lock` is updated without changing unrelated package constraints.
+Expected: `pyproject.toml` and `uv.lock` record LanceDB directly because MCP imports it directly.
 
-- [ ] **Step 2: Write failing adapter tests against a temporary LanceDB**
-
-Use a real temporary database rather than mocking the query chain:
+- [ ] **Step 2: Write failing adapter tests using a real temporary LanceDB**
 
 ```python
 import lancedb
 import pyarrow as pa
+import pytest
+
+
+def _create_db(path):
+    db = lancedb.connect(str(path))
+    db.create_table(
+        "text_unit_text",
+        data=pa.table({
+            "id": ["t1", "t2"],
+            "vector": [[1.0, 0.0], [0.0, 1.0]],
+            "text": ["alpha", "beta"],
+        }),
+    )
+    return db
 
 
 def test_search_returns_ranked_ids_with_normalized_scores(tmp_path):
-    db = lancedb.connect(tmp_path / "lancedb")
-    db.create_table(
-        "text_unit_text",
-        data=pa.table(
-            {
-                "id": ["t1", "t2"],
-                "vector": [[1.0, 0.0], [0.0, 1.0]],
-                "text": ["alpha", "beta"],
-            }
-        ),
-    )
-
+    _create_db(tmp_path / "lancedb")
     from maf_graphrag.mcp_server.retrieval.vector_store import LanceDbVectorStore
 
     results = LanceDbVectorStore(tmp_path / "lancedb").search("text_unit_text", [1.0, 0.0], 2)
 
     assert [match.id for match in results] == ["t1", "t2"]
     assert results[0].score > results[1].score
+
+
+def test_search_rejects_missing_database(tmp_path):
+    from maf_graphrag.mcp_server.retrieval.vector_store import LanceDbVectorStore
+
+    with pytest.raises(FileNotFoundError, match="LanceDB database not found"):
+        LanceDbVectorStore(tmp_path / "missing").search("text_unit_text", [1.0, 0.0], 1)
+
+
+def test_search_rejects_missing_table(tmp_path):
+    _create_db(tmp_path / "lancedb")
+    from maf_graphrag.mcp_server.retrieval.vector_store import LanceDbVectorStore
+
+    with pytest.raises(LookupError, match="LanceDB table not found: entity_description"):
+        LanceDbVectorStore(tmp_path / "lancedb").search("entity_description", [1.0, 0.0], 1)
 ```
 
-Add tests for a missing database/table that assert a clear `FileNotFoundError` or `LookupError` rather than exposing a low-level LanceDB traceback.
-
-- [ ] **Step 3: Run adapter tests and verify RED**
+- [ ] **Step 3: Run tests and verify RED**
 
 ```bash
 uv run pytest tests/mcp_server/retrieval/test_vector_store.py -q
@@ -439,8 +432,6 @@ uv run pytest tests/mcp_server/retrieval/test_vector_store.py -q
 Expected: import failure because `vector_store.py` does not exist.
 
 - [ ] **Step 4: Implement the adapter**
-
-Use one raw LanceDB boundary:
 
 ```python
 from dataclasses import dataclass
@@ -479,15 +470,15 @@ class LanceDbVectorStore:
         ]
 ```
 
-- [ ] **Step 5: Run adapter tests and verify GREEN**
+- [ ] **Step 5: Run tests and verify GREEN**
 
 ```bash
 uv run pytest tests/mcp_server/retrieval/test_vector_store.py -q
 ```
 
-Expected: all vector-store tests pass.
+Expected: all adapter tests pass.
 
-- [ ] **Step 6: Commit the vector adapter**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add pyproject.toml uv.lock src/maf_graphrag/mcp_server/retrieval/vector_store.py tests/mcp_server/retrieval/test_vector_store.py
@@ -496,7 +487,7 @@ git commit -m "feat: add LanceDB MCP retrieval adapter"
 
 ---
 
-### Task 4: Add Retrieval Response Types and Semantic Search Tools
+### Task 4: Add Semantic Text and Entity Retrieval
 
 **Files:**
 - Modify: `src/maf_graphrag/mcp_server/tools/types.py`
@@ -506,86 +497,109 @@ git commit -m "feat: add LanceDB MCP retrieval adapter"
 - Modify: `tests/mcp_server/tools/test_types.py`
 
 **Interfaces:**
-- Produces: `SemanticMatch`, `SemanticSearchResult`, `EntitySearchMatch`, `EntitySearchResult` TypedDicts.
-- Produces: `semantic_search_tool(query: str, limit: int = 10) -> SemanticSearchResult | ToolError`
-- Produces: `search_entities_tool(query: str, limit: int = 10) -> EntitySearchResult | ToolError`
+- Produces `SemanticMatch`, `SemanticSearchResult`, `EntitySearchMatch`, `EntitySearchResult`.
+- Produces `semantic_search_tool(query: str, limit: int = 10) -> SemanticSearchResult | ToolError`.
+- Produces `search_entities_tool(query: str, limit: int = 10) -> EntitySearchResult | ToolError`.
 
-- [ ] **Step 1: Write failing tests for semantic text-unit retrieval**
-
-Test behavior through injected/mocked retrieval boundaries, not GraphRAG APIs:
+- [ ] **Step 1: Write failing retrieval tests with complete fixtures**
 
 ```python
-async def test_semantic_search_returns_hydrated_text_units(monkeypatch):
-    import pandas as pd
-    from maf_graphrag.core.data_loader import GraphData
-    from maf_graphrag.mcp_server.retrieval.vector_store import VectorMatch
+import pandas as pd
 
-    data = GraphData(
-        entities=pd.DataFrame(),
+from maf_graphrag.core.data_loader import GraphData
+from maf_graphrag.mcp_server.retrieval.vector_store import VectorMatch
+
+
+class FakeEncoder:
+    def encode(self, text: str) -> list[float]:
+        return [0.1, 0.2]
+
+
+class FakeStore:
+    def search(self, table_name: str, vector: list[float], limit: int) -> list[VectorMatch]:
+        if table_name == "text_unit_text":
+            return [VectorMatch("t1", 0.90)]
+        if table_name == "entity_description":
+            return [VectorMatch("e1", 0.88)]
+        return []
+
+
+def _data() -> GraphData:
+    return GraphData(
+        entities=pd.DataFrame([
+            {
+                "id": "e1",
+                "title": "Project Alpha",
+                "type": "project",
+                "description": "Main project",
+                "community_ids": [1],
+            }
+        ]),
         relationships=pd.DataFrame(),
         communities=pd.DataFrame(),
         community_reports=pd.DataFrame(),
         text_units=pd.DataFrame([
-            {"id": "t1", "text": "Project Alpha uses PostgreSQL", "document_id": "d1"},
+            {"id": "t1", "text": "Project Alpha uses PostgreSQL", "document_id": "d1"}
         ]),
     )
 
-    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search.get_graph_data", lambda: data)
-    monkeypatch.setattr(
-        "maf_graphrag.mcp_server.tools.retrieval_search.get_query_encoder",
-        lambda: type("Encoder", (), {"encode": lambda self, text: [0.1, 0.2]})(),
-    )
-    monkeypatch.setattr(
-        "maf_graphrag.mcp_server.tools.retrieval_search._get_vector_store",
-        lambda: type("Store", (), {"search": lambda self, table, vector, limit: [VectorMatch("t1", 0.9)]})(),
-    )
+
+async def test_semantic_search_returns_hydrated_text_unit(monkeypatch):
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search.get_graph_data", _data)
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search.get_query_encoder", lambda: FakeEncoder())
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search._get_vector_store", lambda: FakeStore())
 
     from maf_graphrag.mcp_server.tools.retrieval_search import semantic_search_tool
 
     result = await semantic_search_tool("database", limit=5)
 
-    assert result["matches"][0]["text_unit_id"] == "t1"
-    assert result["matches"][0]["score"] == 0.9
-    assert result["matches"][0]["text"] == "Project Alpha uses PostgreSQL"
-```
+    assert result == {
+        "matches": [{
+            "text_unit_id": "t1",
+            "text": "Project Alpha uses PostgreSQL",
+            "score": 0.90,
+            "document_ids": ["d1"],
+        }],
+        "returned": 1,
+        "query_type": "semantic_text",
+    }
 
-Add validation tests for empty query and invalid limits.
 
-- [ ] **Step 2: Write failing tests for semantic entity retrieval**
+async def test_search_entities_returns_hydrated_entity(monkeypatch):
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search.get_graph_data", _data)
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search.get_query_encoder", lambda: FakeEncoder())
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.retrieval_search._get_vector_store", lambda: FakeStore())
 
-```python
-async def test_search_entities_hydrates_entity_metadata(monkeypatch):
-    # GraphData.entities contains id=e1/title=Project Alpha/type=project/description=...
-    # vector store returns VectorMatch("e1", 0.88)
-    # assert entity_id/name/type/description/community_ids/score are returned.
-```
+    from maf_graphrag.mcp_server.tools.retrieval_search import search_entities_tool
 
-The concrete assertions must be:
+    result = await search_entities_tool("project", limit=5)
 
-```python
-assert result["matches"] == [
-    {
+    assert result["matches"] == [{
         "entity_id": "e1",
         "name": "Project Alpha",
         "type": "project",
         "description": "Main project",
         "community_ids": [1],
         "score": 0.88,
-    }
-]
+    }]
+
+
+async def test_semantic_search_validates_query_and_limit():
+    from maf_graphrag.mcp_server.tools.retrieval_search import semantic_search_tool
+
+    assert "error" in await semantic_search_tool("", limit=5)
+    assert "error" in await semantic_search_tool("query", limit=0)
 ```
 
-- [ ] **Step 3: Run retrieval-tool tests and verify RED**
+- [ ] **Step 2: Run tests and verify RED**
 
 ```bash
 uv run pytest tests/mcp_server/tools/test_retrieval_search.py tests/mcp_server/tools/test_types.py -q
 ```
 
-Expected: missing retrieval types/tool module.
+Expected: missing retrieval types and tool module.
 
-- [ ] **Step 4: Add definitive retrieval TypedDicts**
-
-In `types.py` add:
+- [ ] **Step 3: Add retrieval response types**
 
 ```python
 class SemanticMatch(TypedDict):
@@ -616,11 +630,11 @@ class EntitySearchResult(TypedDict):
     query_type: str
 ```
 
-Keep `EntityInfo`, `EntityQueryResult`, and `ToolError`. Remove `SearchResult` only after server/wrapper migration in Task 7 so intermediate commits remain importable.
+Keep `SearchResult` temporarily until Task 7 removes the old MCP wrappers.
 
-- [ ] **Step 5: Implement retrieval search tools**
+- [ ] **Step 4: Implement the two retrieval tools**
 
-Implement `retrieval_search.py` with these rules:
+In `retrieval_search.py`:
 
 ```python
 TEXT_UNIT_TABLE = "text_unit_text"
@@ -631,20 +645,13 @@ def _get_vector_store() -> LanceDbVectorStore:
     return LanceDbVectorStore(MCPConfig.from_env().lancedb_dir)
 ```
 
-`semantic_search_tool`:
-1. call `validate_query(query)` and `validate_limit(limit)`;
-2. `vector = get_query_encoder().encode(query)`;
-3. `matches = _get_vector_store().search(TEXT_UNIT_TABLE, vector, limit)`;
-4. hydrate rows by exact `text_units["id"]` match;
-5. return `{"matches": ..., "returned": len(...), "query_type": "semantic_text"}`.
+`semantic_search_tool` must validate query/limit, encode the query, search `TEXT_UNIT_TABLE`, hydrate exact `text_units["id"]` matches, normalize `document_id` into a list of strings, skip stale vector IDs, and return `query_type="semantic_text"`.
 
-`search_entities_tool` follows the same flow against `ENTITY_TABLE`, hydrating `entities["id"]` and returning `query_type="semantic_entity"`.
+`search_entities_tool` must perform the same sequence against `ENTITY_TABLE`, hydrate exact `entities["id"]` matches, skip stale IDs, and return `query_type="semantic_entity"`.
 
-If a vector-store ID no longer exists in the corresponding Parquet file, skip that stale vector row rather than fabricate evidence.
+Decorate both with `@handle_tool_errors(...)`.
 
-Decorate both with `@handle_tool_errors(...)` so missing index/vector errors become `ToolError`.
-
-- [ ] **Step 6: Run focused retrieval tests and verify GREEN**
+- [ ] **Step 5: Run tests and verify GREEN**
 
 ```bash
 uv run pytest tests/mcp_server/tools/test_retrieval_search.py tests/mcp_server/tools/test_types.py -q
@@ -652,7 +659,7 @@ uv run pytest tests/mcp_server/tools/test_retrieval_search.py tests/mcp_server/t
 
 Expected: all focused tests pass.
 
-- [ ] **Step 7: Commit semantic retrieval tools**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/maf_graphrag/mcp_server/tools/types.py src/maf_graphrag/mcp_server/tools/retrieval_search.py src/maf_graphrag/mcp_server/tools/__init__.py tests/mcp_server/tools/test_retrieval_search.py tests/mcp_server/tools/test_types.py
@@ -661,54 +668,112 @@ git commit -m "feat: add semantic MCP retrieval tools"
 
 ---
 
-### Task 5: Add Direct Relationship Traversal
+### Task 5: Add Relationship and Source Retrieval
 
 **Files:**
 - Create: `src/maf_graphrag/mcp_server/tools/relationships.py`
+- Create: `src/maf_graphrag/mcp_server/tools/sources.py`
+- Modify: `src/maf_graphrag/mcp_server/tools/source_resolver.py`
 - Modify: `src/maf_graphrag/mcp_server/tools/types.py`
 - Modify: `src/maf_graphrag/mcp_server/tools/__init__.py`
 - Create: `tests/mcp_server/tools/test_relationships.py`
+- Create: `tests/mcp_server/tools/test_sources.py`
+- Modify: `tests/mcp_server/tools/test_source_resolver.py`
 
 **Interfaces:**
-- Produces: `RelationshipInfo`, `RelationshipResult`.
-- Produces: `get_relationships_tool(entity_name: str, limit: int = 20) -> RelationshipResult | ToolError`.
+- Produces `get_relationships_tool(entity_name: str, limit: int = 20) -> RelationshipResult | ToolError`.
+- Produces `get_sources_tool(source_ids: list[str], limit: int = 20) -> SourceResult | ToolError`.
+- Produces `resolve_text_unit_ids(source_ids: list[str], data: GraphData, limit: int) -> tuple[list[SourceInfo], list[str]]`.
 
-- [ ] **Step 1: Write failing traversal tests for both edge directions**
-
-Use a graph fixture:
-
-```python
-entities = pd.DataFrame([
-    {"id": "e1", "title": "Project Alpha"},
-    {"id": "e2", "title": "Sarah Chen"},
-    {"id": "e3", "title": "PostgreSQL"},
-])
-relationships = pd.DataFrame([
-    {"source": "Project Alpha", "target": "Sarah Chen", "description": "led by", "weight": 2.0, "rank": 1},
-    {"source": "PostgreSQL", "target": "Project Alpha", "description": "used by", "weight": 1.0, "rank": 2},
-])
-```
-
-Assert:
+- [ ] **Step 1: Write failing relationship tests**
 
 ```python
-result = await get_relationships_tool("project alpha", limit=20)
-assert [edge["counterpart"] for edge in result["relationships"]] == ["Sarah Chen", "PostgreSQL"]
-assert result["relationships"][0]["direction"] == "outgoing"
-assert result["relationships"][1]["direction"] == "incoming"
+import pandas as pd
+
+from maf_graphrag.core.data_loader import GraphData
+
+
+def _relationship_data() -> GraphData:
+    return GraphData(
+        entities=pd.DataFrame([
+            {"id": "e1", "title": "Project Alpha"},
+            {"id": "e2", "title": "Sarah Chen"},
+            {"id": "e3", "title": "PostgreSQL"},
+        ]),
+        relationships=pd.DataFrame([
+            {"source": "Project Alpha", "target": "Sarah Chen", "description": "led by", "weight": 2.0, "rank": 1},
+            {"source": "PostgreSQL", "target": "Project Alpha", "description": "used by", "weight": 1.0, "rank": 2},
+        ]),
+        communities=pd.DataFrame(),
+        community_reports=pd.DataFrame(),
+        text_units=pd.DataFrame(),
+    )
+
+
+async def test_relationships_return_both_directions(monkeypatch):
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.relationships.get_graph_data", _relationship_data)
+    from maf_graphrag.mcp_server.tools.relationships import get_relationships_tool
+
+    result = await get_relationships_tool("project alpha", limit=20)
+
+    assert [edge["counterpart"] for edge in result["relationships"]] == ["Sarah Chen", "PostgreSQL"]
+    assert [edge["direction"] for edge in result["relationships"]] == ["outgoing", "incoming"]
+
+
+async def test_relationships_return_error_for_unknown_entity(monkeypatch):
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.relationships.get_graph_data", _relationship_data)
+    from maf_graphrag.mcp_server.tools.relationships import get_relationships_tool
+
+    result = await get_relationships_tool("Missing", limit=20)
+    assert result["error"] == "Entity not found: Missing"
 ```
 
-Also test unknown entity and limit validation.
+- [ ] **Step 2: Write failing source-resolution tests**
 
-- [ ] **Step 2: Run relationship tests and verify RED**
+```python
+import pandas as pd
+
+from maf_graphrag.core.data_loader import GraphData
+
+
+def _source_data() -> GraphData:
+    return GraphData(
+        entities=pd.DataFrame(),
+        relationships=pd.DataFrame(),
+        communities=pd.DataFrame(),
+        community_reports=pd.DataFrame(),
+        text_units=pd.DataFrame([
+            {"id": "tu-a", "document_id": "doc-a", "text": "Alpha source text"},
+            {"id": "tu-b", "document_id": "doc-b", "text": "Beta source text"},
+        ]),
+        documents=pd.DataFrame([
+            {"id": "doc-a", "title": "alpha.md", "text": "Full alpha document"},
+            {"id": "doc-b", "title": "beta.md", "text": "Full beta document"},
+        ]),
+    )
+
+
+async def test_sources_preserve_order_deduplicate_and_report_missing(monkeypatch):
+    monkeypatch.setattr("maf_graphrag.mcp_server.tools.sources.get_graph_data", _source_data)
+    from maf_graphrag.mcp_server.tools.sources import get_sources_tool
+
+    result = await get_sources_tool(["tu-b", "tu-a", "tu-b", "missing"], limit=3)
+
+    assert [item["text_unit_id"] for item in result["sources"]] == ["tu-b", "tu-a"]
+    assert result["missing_ids"] == ["missing"]
+    assert result["sources"][0]["document_title"] == "beta.md"
+    assert result["sources"][0]["text"] == "Beta source text"
+```
+
+- [ ] **Step 3: Run tests and verify RED**
 
 ```bash
-uv run pytest tests/mcp_server/tools/test_relationships.py -q
+uv run pytest tests/mcp_server/tools/test_relationships.py tests/mcp_server/tools/test_sources.py tests/mcp_server/tools/test_source_resolver.py -q
 ```
 
-Expected: module/type import failure.
+Expected: new modules/types are missing.
 
-- [ ] **Step 3: Add relationship response types**
+- [ ] **Step 4: Add response types**
 
 ```python
 class RelationshipInfo(TypedDict):
@@ -726,85 +791,11 @@ class RelationshipResult(TypedDict):
     relationships: list[RelationshipInfo]
     returned: int
     query_type: str
-```
 
-- [ ] **Step 4: Implement direct Parquet traversal**
 
-`get_relationships_tool` must:
-- validate `entity_name` and `limit`;
-- resolve the canonical entity title by case-insensitive equality first, then case-insensitive contains only if exact equality finds nothing;
-- filter relationship rows where `source == canonical_title` or `target == canonical_title`;
-- preserve DataFrame order and stop at `limit`;
-- populate `counterpart` and `direction` deterministically;
-- include optional description/weight/rank only when the source row has a non-null value;
-- return `ToolError(error=f"Entity not found: {entity_name}")` when no entity resolves.
-
-- [ ] **Step 5: Run relationship tests and verify GREEN**
-
-```bash
-uv run pytest tests/mcp_server/tools/test_relationships.py -q
-```
-
-- [ ] **Step 6: Commit relationship traversal**
-
-```bash
-git add src/maf_graphrag/mcp_server/tools/relationships.py src/maf_graphrag/mcp_server/tools/types.py src/maf_graphrag/mcp_server/tools/__init__.py tests/mcp_server/tools/test_relationships.py
-git commit -m "feat: add MCP relationship traversal"
-```
-
----
-
-### Task 6: Add Direct Source Resolution
-
-**Files:**
-- Create: `src/maf_graphrag/mcp_server/tools/sources.py`
-- Modify: `src/maf_graphrag/mcp_server/tools/types.py`
-- Modify: `src/maf_graphrag/mcp_server/tools/__init__.py`
-- Modify: `src/maf_graphrag/mcp_server/tools/source_resolver.py`
-- Create: `tests/mcp_server/tools/test_sources.py`
-- Modify: `tests/mcp_server/tools/test_source_resolver.py`
-
-**Interfaces:**
-- Produces: `SourceInfo`, `SourceResult`.
-- Produces: `get_sources_tool(source_ids: list[str], limit: int = 20) -> SourceResult | ToolError`.
-
-- [ ] **Step 1: Write failing tests for caller order, de-duplication, missing IDs, and limit**
-
-Fixture rows:
-
-```python
-text_units = pd.DataFrame([
-    {"id": "tu-a", "human_readable_id": 0, "document_id": "doc-a", "text": "Alpha source text"},
-    {"id": "tu-b", "human_readable_id": 1, "document_id": "doc-b", "text": "Beta source text"},
-])
-documents = pd.DataFrame([
-    {"id": "doc-a", "title": "alpha.md", "text": "Full alpha document"},
-    {"id": "doc-b", "title": "beta.md", "text": "Full beta document"},
-])
-```
-
-Assert:
-
-```python
-result = await get_sources_tool(["tu-b", "tu-a", "tu-b", "missing"], limit=3)
-assert [item["text_unit_id"] for item in result["sources"]] == ["tu-b", "tu-a"]
-assert result["missing_ids"] == ["missing"]
-assert result["sources"][0]["document_title"] == "beta.md"
-```
-
-- [ ] **Step 2: Run source tests and verify RED**
-
-```bash
-uv run pytest tests/mcp_server/tools/test_sources.py tests/mcp_server/tools/test_source_resolver.py -q
-```
-
-Expected: missing source-tool/types implementation.
-
-- [ ] **Step 3: Add source response types**
-
-```python
 class SourceInfo(TypedDict):
     text_unit_id: str
+    text: str
     document_id: NotRequired[str]
     document_title: NotRequired[str]
     text_preview: NotRequired[str]
@@ -817,37 +808,76 @@ class SourceResult(TypedDict):
     query_type: str
 ```
 
-- [ ] **Step 4: Implement ID-based source resolution**
+- [ ] **Step 5: Implement direct relationship traversal**
 
-Add a focused helper to `source_resolver.py` that resolves actual `text_units["id"]` values, rather than the old GraphRAG context `human_readable_id` path:
+`get_relationships_tool` must validate entity name and limit, resolve canonical entity title by case-insensitive equality first and case-insensitive contains second, filter rows where the title is source or target, preserve DataFrame order, include `counterpart` and `direction`, include non-null description/weight/rank, and return `ToolError(error=f"Entity not found: {entity_name}")` when resolution fails.
+
+- [ ] **Step 6: Implement concrete text-unit source resolution**
+
+In `source_resolver.py` add:
 
 ```python
-def resolve_text_unit_ids(source_ids: list[str], data: GraphData, limit: int) -> tuple[list[dict], list[str]]:
-    # de-duplicate while preserving order
-    # index text_units by string id
-    # map document_id to documents.title
-    # build at most limit results
-    # collect unresolved IDs in caller order
+def resolve_text_unit_ids(source_ids: list[str], data: GraphData, limit: int) -> tuple[list[SourceInfo], list[str]]:
+    unique_ids = list(dict.fromkeys(str(source_id) for source_id in source_ids))
+    text_rows = {
+        str(row["id"]): row
+        for _, row in data.text_units.iterrows()
+        if row.get("id") is not None
+    }
+    doc_titles = {}
+    if data.documents is not None:
+        doc_titles = {
+            str(row["id"]): str(row.get("title", ""))
+            for _, row in data.documents.iterrows()
+            if row.get("id") is not None
+        }
+
+    resolved: list[SourceInfo] = []
+    missing: list[str] = []
+    for source_id in unique_ids:
+        row = text_rows.get(source_id)
+        if row is None:
+            missing.append(source_id)
+            continue
+        if len(resolved) >= limit:
+            break
+        text = str(row.get("text", ""))
+        item: SourceInfo = {
+            "text_unit_id": source_id,
+            "text": text,
+            "text_preview": _make_text_preview(text),
+        }
+        document_id = row.get("document_id")
+        if document_id is not None:
+            document_key = str(document_id)
+            item["document_id"] = document_key
+            title = doc_titles.get(document_key)
+            if title:
+                item["document_title"] = title
+        resolved.append(item)
+    return resolved, missing
 ```
 
-`get_sources_tool` validates `1 <= limit <= MAX_LIMIT`, rejects an empty `source_ids` list with `ToolError(error="source_ids must not be empty.")`, calls the helper, and returns `query_type="source_lookup"`.
+`get_sources_tool` validates `limit`, returns `ToolError(error="source_ids must not be empty.")` for an empty list, calls this helper, and returns `query_type="source_lookup"`.
 
-- [ ] **Step 5: Run source tests and verify GREEN**
+- [ ] **Step 7: Run tests and verify GREEN**
 
 ```bash
-uv run pytest tests/mcp_server/tools/test_sources.py tests/mcp_server/tools/test_source_resolver.py -q
+uv run pytest tests/mcp_server/tools/test_relationships.py tests/mcp_server/tools/test_sources.py tests/mcp_server/tools/test_source_resolver.py -q
 ```
 
-- [ ] **Step 6: Commit source lookup**
+Expected: all focused tests pass.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/maf_graphrag/mcp_server/tools/sources.py src/maf_graphrag/mcp_server/tools/source_resolver.py src/maf_graphrag/mcp_server/tools/types.py src/maf_graphrag/mcp_server/tools/__init__.py tests/mcp_server/tools/test_sources.py tests/mcp_server/tools/test_source_resolver.py
-git commit -m "feat: add MCP source retrieval"
+git add src/maf_graphrag/mcp_server/tools/relationships.py src/maf_graphrag/mcp_server/tools/sources.py src/maf_graphrag/mcp_server/tools/source_resolver.py src/maf_graphrag/mcp_server/tools/types.py src/maf_graphrag/mcp_server/tools/__init__.py tests/mcp_server/tools/test_relationships.py tests/mcp_server/tools/test_sources.py tests/mcp_server/tools/test_source_resolver.py
+git commit -m "feat: add graph and source MCP retrieval"
 ```
 
 ---
 
-### Task 7: Replace the Public MCP Surface
+### Task 6: Replace the Public MCP Surface
 
 **Files:**
 - Modify: `src/maf_graphrag/mcp_server/server.py`
@@ -862,38 +892,25 @@ git commit -m "feat: add MCP source retrieval"
 - Delete: `tests/mcp_server/tools/test_global_search.py`
 
 **Interfaces:**
-- Public MCP functions become exactly:
-  - `semantic_search(query: str, limit: int = 10)`
-  - `search_entities(query: str, limit: int = 10)`
-  - `get_entity(entity_name: str)`
-  - `get_relationships(entity_name: str, limit: int = 20)`
-  - `get_sources(source_ids: list[str], limit: int = 20)`
+- Public MCP functions become exactly `semantic_search`, `search_entities`, `get_entity`, `get_relationships`, `get_sources`.
 
-- [ ] **Step 1: Replace server tests with failing retrieval-only dispatch tests**
-
-Use direct function dispatch assertions:
+- [ ] **Step 1: Replace server tests with failing retrieval-only dispatch/discovery tests**
 
 ```python
+from unittest.mock import AsyncMock, patch
+
+from fastmcp import Client
+
+
 async def test_semantic_search_forwards_to_retrieval_tool():
     from maf_graphrag.mcp_server.server import semantic_search
 
     expected = {"matches": [], "returned": 0, "query_type": "semantic_text"}
-    with patch(
-        "maf_graphrag.mcp_server.server.semantic_search_tool",
-        AsyncMock(return_value=expected),
-    ) as tool:
+    with patch("maf_graphrag.mcp_server.server.semantic_search_tool", AsyncMock(return_value=expected)) as tool:
         result = await semantic_search("database", limit=7)
 
     tool.assert_awaited_once_with("database", 7)
     assert result is expected
-```
-
-Add equivalent dispatch tests for `search_entities`, `get_entity`, `get_relationships`, and `get_sources`.
-
-Add a public MCP discovery test through FastMCP's client API:
-
-```python
-from fastmcp import Client
 
 
 async def test_advertised_tools_are_retrieval_only():
@@ -911,17 +928,26 @@ async def test_advertised_tools_are_retrieval_only():
     }
 ```
 
+Add direct dispatch assertions with these exact expectations:
+
+```python
+search_entities_tool.assert_awaited_once_with("project", 4)
+entity_query_tool.assert_awaited_once_with(entity_name="Project Alpha", limit=1)
+get_relationships_tool.assert_awaited_once_with("Project Alpha", 5)
+get_sources_tool.assert_awaited_once_with(["tu-a"], 6)
+```
+
 - [ ] **Step 2: Run server tests and verify RED**
 
 ```bash
 uv run pytest tests/mcp_server/test_server.py -q
 ```
 
-Expected: current server still advertises generative tools and does not expose the new retrieval functions.
+Expected: current server still advertises generative tools and lacks the new public functions.
 
-- [ ] **Step 3: Rewire `server.py` to the five approved tools**
+- [ ] **Step 3: Rewire `server.py` to exactly five retrieval tools**
 
-Imports must be retrieval-only:
+Use only these tool imports:
 
 ```python
 from maf_graphrag.mcp_server.tools import (
@@ -933,41 +959,57 @@ from maf_graphrag.mcp_server.tools import (
 )
 ```
 
-Register only the five functions named in the interface block. Remove imports of `DEFAULT_RESPONSE_TYPE`, `local_search_tool`, and `global_search_tool` from `server.py`.
-
-`get_entity` continues using:
+Register functions with these signatures:
 
 ```python
-return await entity_query_tool(entity_name=entity_name, limit=1)
+@mcp.tool()
+async def semantic_search(query: str, limit: int = 10):
+    return await semantic_search_tool(query, limit)
+
+
+@mcp.tool()
+async def search_entities(query: str, limit: int = 10):
+    return await search_entities_tool(query, limit)
+
+
+@mcp.tool()
+async def get_entity(entity_name: str):
+    return await entity_query_tool(entity_name=entity_name, limit=1)
+
+
+@mcp.tool()
+async def get_relationships(entity_name: str, limit: int = 20):
+    return await get_relationships_tool(entity_name, limit)
+
+
+@mcp.tool()
+async def get_sources(source_ids: list[str], limit: int = 20):
+    return await get_sources_tool(source_ids, limit)
 ```
 
-Do not register `list_entities`.
+Do not register `list_entities`, `search_knowledge_graph`, `local_search`, or `global_search`.
 
-- [ ] **Step 4: Remove obsolete MCP generative wrappers and answer-oriented type**
+- [ ] **Step 4: Remove obsolete MCP generative wrappers and answer-oriented MCP types**
 
-Delete the local/global MCP modules and tests. Remove their exports from `tools/__init__.py`. Remove `SearchContext` and `SearchResult` from `tools/types.py` after verifying no remaining MCP import needs them.
+Delete the two wrapper modules and tests listed above. Remove their exports from `tools/__init__.py`. Remove `SearchContext` and `SearchResult` from `tools/types.py` once no MCP imports need them. Do not modify `src/maf_graphrag/core/search.py`.
 
-Do not delete or alter `src/maf_graphrag/core/search.py`.
+- [ ] **Step 5: Update the chat agent's MCP description**
 
-- [ ] **Step 5: Update agent-side MCP description**
-
-In `agents/factories.py`, replace the MCP description with:
+In `agents/factories.py` use:
 
 ```python
 description="Retrieve structured evidence, entities, relationships, and sources from the GraphRAG knowledge graph"
 ```
 
-This tells the chat/router LLM to reason over MCP evidence rather than expecting MCP to synthesize the final answer.
-
-- [ ] **Step 6: Run server and MCP-tool tests and verify GREEN**
+- [ ] **Step 6: Run MCP tests and verify GREEN**
 
 ```bash
 uv run pytest tests/mcp_server/test_server.py tests/mcp_server/tools -q
 ```
 
-Expected: all MCP tests pass; discovery returns exactly the five retrieval tools.
+Expected: all MCP tests pass and discovery returns exactly five retrieval tools.
 
-- [ ] **Step 7: Commit the MCP API replacement**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A src/maf_graphrag/mcp_server src/maf_graphrag/agents/factories.py tests/mcp_server
@@ -976,46 +1018,101 @@ git commit -m "feat: replace MCP search with retrieval-only tools"
 
 ---
 
-### Task 8: Add a Hard No-LLM Runtime Regression Test
+### Task 7: Add the Hard No-LLM Runtime Regression Test
 
 **Files:**
 - Create: `tests/mcp_server/test_no_llm_runtime.py`
 
 **Interfaces:**
-- Verifies the public runtime contract only; produces no production API.
+- Verifies the approved runtime contract; no production API.
 
-- [ ] **Step 1: Write a regression test that makes completion use impossible**
-
-The test must explicitly remove llama.cpp environment variables and make generative GraphRAG entry points fatal if touched:
+- [ ] **Step 1: Write a complete no-LLM regression test**
 
 ```python
-async def test_all_mcp_retrieval_tools_work_without_completion_model(monkeypatch, retrieval_fixture):
+import pandas as pd
+
+from maf_graphrag.core.data_loader import GraphData
+from maf_graphrag.mcp_server.retrieval.vector_store import VectorMatch
+
+
+class FakeEncoder:
+    def encode(self, text: str) -> list[float]:
+        return [0.1, 0.2]
+
+
+class FakeVectorStore:
+    def search(self, table_name: str, vector: list[float], limit: int) -> list[VectorMatch]:
+        if table_name == "text_unit_text":
+            return [VectorMatch("t1", 0.9)]
+        if table_name == "entity_description":
+            return [VectorMatch("e1", 0.8)]
+        return []
+
+
+def _graph_data() -> GraphData:
+    return GraphData(
+        entities=pd.DataFrame([{
+            "id": "e1",
+            "title": "Project Alpha",
+            "type": "project",
+            "description": "Main project",
+            "community_ids": [1],
+        }]),
+        relationships=pd.DataFrame([{
+            "source": "Project Alpha",
+            "target": "Sarah Chen",
+            "description": "led by",
+        }]),
+        communities=pd.DataFrame(),
+        community_reports=pd.DataFrame(),
+        text_units=pd.DataFrame([{
+            "id": "t1",
+            "text": "Project Alpha is led by Sarah Chen",
+            "document_id": "d1",
+        }]),
+        documents=pd.DataFrame([{
+            "id": "d1",
+            "title": "project_alpha.md",
+            "text": "Project Alpha is led by Sarah Chen",
+        }]),
+    )
+
+
+async def test_all_retrieval_tools_work_without_completion_model(monkeypatch):
     monkeypatch.delenv("LLAMA_CPP_BASE_URL", raising=False)
     monkeypatch.delenv("LLAMA_CPP_MODEL", raising=False)
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("MCP retrieval attempted to call a generative GraphRAG API")
+        raise AssertionError("MCP retrieval attempted a generative GraphRAG call")
 
     monkeypatch.setattr("graphrag.api.local_search", forbidden)
     monkeypatch.setattr("graphrag.api.global_search", forbidden)
     monkeypatch.setattr("graphrag.api.basic_search", forbidden)
     monkeypatch.setattr("graphrag.api.drift_search", forbidden)
+
+    from maf_graphrag.mcp_server.tools import _data_cache
+    _data_cache._cached_data = _graph_data()
+
+    monkeypatch.setattr(
+        "maf_graphrag.mcp_server.tools.retrieval_search.get_query_encoder",
+        lambda: FakeEncoder(),
+    )
+    monkeypatch.setattr(
+        "maf_graphrag.mcp_server.tools.retrieval_search._get_vector_store",
+        lambda: FakeVectorStore(),
+    )
+
+    from maf_graphrag.mcp_server.tools.entity_query import entity_query_tool
+    from maf_graphrag.mcp_server.tools.relationships import get_relationships_tool
+    from maf_graphrag.mcp_server.tools.retrieval_search import search_entities_tool, semantic_search_tool
+    from maf_graphrag.mcp_server.tools.sources import get_sources_tool
+
+    assert "error" not in await semantic_search_tool("Project Alpha", 3)
+    assert "error" not in await search_entities_tool("Project Alpha", 3)
+    assert "error" not in await entity_query_tool(entity_name="Project Alpha", limit=1)
+    assert "error" not in await get_relationships_tool("Project Alpha", 5)
+    assert "error" not in await get_sources_tool(["t1"], 5)
 ```
-
-Use the test fixture to patch only the physical embedding/vector-store boundaries so the test does not download a model:
-
-```python
-monkeypatch.setattr(
-    "maf_graphrag.mcp_server.tools.retrieval_search.get_query_encoder",
-    lambda: FakeEncoder([0.1, 0.2]),
-)
-monkeypatch.setattr(
-    "maf_graphrag.mcp_server.tools.retrieval_search._get_vector_store",
-    lambda: FakeVectorStore(...),
-)
-```
-
-Then call all five server functions and assert none return a `ToolError`.
 
 - [ ] **Step 2: Run the regression test**
 
@@ -1023,11 +1120,9 @@ Then call all five server functions and assert none return a `ToolError`.
 uv run pytest tests/mcp_server/test_no_llm_runtime.py -q
 ```
 
-Expected: PASS only when no MCP path reaches generative GraphRAG/completion configuration.
+Expected: PASS only when retrieval no longer reaches GraphRAG's generative APIs or completion configuration.
 
 - [ ] **Step 3: Run a static import guard**
-
-Run:
 
 ```bash
 python - <<'PY'
@@ -1049,7 +1144,7 @@ PY
 
 Expected: `MCP import guard passed`.
 
-- [ ] **Step 4: Commit the no-LLM regression guard**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/mcp_server/test_no_llm_runtime.py
@@ -1058,18 +1153,19 @@ git commit -m "test: prove MCP retrieval needs no completion LLM"
 
 ---
 
-### Task 9: Update MCP and Container Documentation
+### Task 8: Documentation, Full Verification, and Container Acceptance
 
 **Files:**
 - Modify: `README.md`
 - Modify: `src/maf_graphrag/mcp_server/README.md`
+- No other production changes unless verification reveals a defect.
 
 **Interfaces:**
-- Documentation contract mirrors the exact five-tool MCP API.
+- Documents and verifies the exact five-tool runtime contract.
 
-- [ ] **Step 1: Update top-level architecture documentation**
+- [ ] **Step 1: Update lifecycle and MCP migration documentation**
 
-Add an explicit lifecycle section:
+Document this exact split:
 
 ```text
 Indexing:
@@ -1082,11 +1178,7 @@ MCP runtime after indexing:
   No completion LLM or llama.cpp call is required.
 ```
 
-Document that the Docker entrypoint still waits for llama.cpp only when the index is missing.
-
-- [ ] **Step 2: Replace the MCP tool table/examples**
-
-Document exactly:
+Document exactly these tools:
 
 ```text
 semantic_search(query, limit=10)
@@ -1096,81 +1188,36 @@ get_relationships(entity_name, limit=20)
 get_sources(source_ids, limit=20)
 ```
 
-Include one example sequence for an MCP host:
+State that `search_knowledge_graph`, `local_search`, `global_search`, and `list_entities` are removed from MCP and that callers must migrate to retrieval primitives.
 
-```text
-1. semantic_search("Who leads Project Alpha?")
-2. get_entity("Project Alpha")
-3. get_relationships("Project Alpha")
-4. get_sources(["<text-unit-id>"])
-5. Host LLM synthesizes the answer from returned evidence.
-```
-
-- [ ] **Step 3: Add migration warning**
-
-State that this release intentionally removes the MCP tools `search_knowledge_graph`, `local_search`, `global_search`, and `list_entities`; callers should migrate to the retrieval primitives.
-
-- [ ] **Step 4: Run documentation/reference grep**
+- [ ] **Step 2: Run stale-reference checks**
 
 ```bash
 rg -n "search_knowledge_graph|local_search\(|global_search\(|list_entities\(" README.md src/maf_graphrag/mcp_server src/maf_graphrag/agents tests/mcp_server
 ```
 
-Expected: no stale MCP registration/documentation references. References inside `core/search.py`, its tests, or historical Superpowers docs are allowed and should not be changed.
+Expected: no stale public-MCP references. Any hit in `src/maf_graphrag/core/search.py` is outside this command's paths and intentionally remains.
 
-- [ ] **Step 5: Commit documentation**
-
-```bash
-git add README.md src/maf_graphrag/mcp_server/README.md
-git commit -m "docs: document retrieval-only MCP runtime"
-```
-
----
-
-### Task 10: Full Verification and Container Runtime Check
-
-**Files:**
-- No production changes expected; fix only defects revealed by verification.
-
-**Interfaces:**
-- Final acceptance against the approved design spec.
-
-- [ ] **Step 1: Run formatting and lint checks**
+- [ ] **Step 3: Run formatting, linting, typing, and the full suite**
 
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-```
-
-Expected: both exit 0.
-
-- [ ] **Step 2: Run static typing**
-
-```bash
 uv run mypy src
-```
-
-Expected: exit 0.
-
-- [ ] **Step 3: Run the full test suite**
-
-```bash
 uv run pytest
 ```
 
-Expected: all tests pass with zero failures.
+Expected: every command exits 0 and pytest reports zero failures.
 
-- [ ] **Step 4: Build the Docker image from the feature branch**
+- [ ] **Step 4: Build the Docker image**
 
 ```bash
 docker build -t hiu-graph:mcp-retrieval-only .
 ```
 
-Expected: image build exits 0.
+Expected: build exits 0.
 
-- [ ] **Step 5: Verify an existing-index container starts with llama.cpp unreachable**
-
-Use a complete indexed `output/` directory and deliberately point the runtime at an unreachable endpoint:
+- [ ] **Step 5: Prove an existing-index container starts with llama.cpp unreachable**
 
 ```bash
 docker run --rm \
@@ -1181,47 +1228,36 @@ docker run --rm \
   hiu-graph:mcp-retrieval-only
 ```
 
-Expected: entrypoint prints `GraphRAG index is ready; skipping indexing.` and MCP starts on port 8011 without attempting llama.cpp health checks.
+Expected: entrypoint logs `GraphRAG index is ready; skipping indexing.` and MCP starts without a llama.cpp health check.
 
-- [ ] **Step 6: Invoke all five MCP tools against the running container**
+- [ ] **Step 6: Invoke the five tools and inspect logs**
 
-Use MCP Inspector or the repository's FastMCP client test harness to invoke:
+With MCP Inspector or the repository FastMCP client, call `semantic_search("Project Alpha", 3)`, copy the first returned `text_unit_id` into a local variable named `source_id`, then call `search_entities("Project Alpha", 3)`, `get_entity("Project Alpha")`, `get_relationships("Project Alpha", 5)`, and `get_sources([source_id], 5)`.
 
-```text
-semantic_search("Project Alpha", 3)
-search_entities("Project Alpha", 3)
-get_entity("Project Alpha")
-get_relationships("Project Alpha", 5)
-get_sources(["<id returned by semantic_search>"], 5)
-```
+Expected: each call returns structured evidence and container logs contain no `LiteLLM completion()` lines.
 
-Expected: all return structured retrieval data; container logs contain no `LiteLLM completion()` lines.
-
-- [ ] **Step 7: Verify first-run indexing behavior was not regressed**
-
-Run the existing entrypoint tests:
+- [ ] **Step 7: Verify first-run auto-indexing was not regressed**
 
 ```bash
 uv run pytest tests/test_docker_entrypoint.py -q
 ```
 
-Expected: all auto-index tests pass, preserving `index missing -> wait for llama.cpp -> build index -> start MCP`.
+Expected: all entrypoint tests pass, preserving `index missing -> wait for llama.cpp -> index -> verify -> start MCP`.
 
-- [ ] **Step 8: Review branch diff against the approved spec**
+- [ ] **Step 8: Review the branch diff against the approved spec**
 
 ```bash
 git diff master...HEAD --stat
 git diff master...HEAD -- src/maf_graphrag/mcp_server settings.yaml Dockerfile README.md
 ```
 
-Checklist:
-- public MCP surface is exactly five retrieval tools;
-- no MCP completion-model calls remain;
-- Gemma indexing configuration remains intact;
-- FastEmbed model is shared by indexing and MCP retrieval;
-- generative `core/search.py` remains available;
-- existing-index MCP runtime does not require llama.cpp.
+Confirm all eight spec success criteria are represented in code/tests and `src/maf_graphrag/core/search.py` still exists unchanged.
 
-- [ ] **Step 9: Commit any verification-only fixes, if required**
+- [ ] **Step 9: Commit documentation or verification fixes**
 
-If verification required a code fix, rerun Steps 1-7 and then commit the specific corrected files with a descriptive message. If no fix was required, do not create an empty commit.
+```bash
+git add README.md src/maf_graphrag/mcp_server/README.md
+git commit -m "docs: document retrieval-only MCP runtime"
+```
+
+If verification required a production fix, rerun Steps 2-7 before committing that fix with its own descriptive commit message.
