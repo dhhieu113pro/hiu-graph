@@ -1,17 +1,8 @@
 """
 Source Resolution Utilities
 
-Resolves GraphRAG context sources (text unit IDs) to meaningful document
+Resolves GraphRAG source/text-unit identifiers to meaningful document
 references with titles and text previews for agent consumption.
-
-GraphRAG's context["sources"] DataFrame contains human_readable_id values
-(e.g., '0', '7') that are meaningless without document mapping. This module
-traces the full chain:
-
-  context["sources"]["id"] (str)
-    → text_units["human_readable_id"] (int64)
-    → text_units["document_id"] (hash)
-    → documents["id"] (hash) → documents["title"] (e.g., 'project_alpha.md')
 """
 
 from __future__ import annotations
@@ -20,7 +11,6 @@ import pandas as pd
 
 from maf_graphrag.core.data_loader import GraphData
 
-# Maximum characters for text preview in source entries
 TEXT_PREVIEW_LENGTH = 200
 
 
@@ -60,7 +50,7 @@ def _make_text_preview(src_text: object) -> str:
 
 
 def _resolve_document(src_id: object, tu_to_doc: dict[int, str], doc_to_title: dict[str, str]) -> str:
-    """Resolve a source ID to a document title."""
+    """Resolve a GraphRAG context source ID to a document title."""
     try:
         hrid = int(str(src_id))
         doc_hash = tu_to_doc.get(hrid)
@@ -71,49 +61,66 @@ def _resolve_document(src_id: object, tu_to_doc: dict[int, str], doc_to_title: d
     return "unknown"
 
 
-def resolve_sources(
-    sources_df: pd.DataFrame | None,
-    data: GraphData,
-) -> list[dict]:
-    """
-    Resolve context source IDs to document titles and text previews.
-
-    Args:
-        sources_df: DataFrame from context["sources"] with 'id' and 'text' columns.
-            The 'id' column contains human_readable_id values as strings.
-        data: GraphData with text_units and documents loaded.
-
-    Returns:
-        List of dicts with 'document', 'text_preview', and 'text_unit_id' keys.
-        Falls back to raw IDs if document mapping is unavailable.
-    """
-    if sources_df is None or sources_df.empty:
-        return []
-
-    if "id" not in sources_df.columns:
+def resolve_sources(sources_df: pd.DataFrame | None, data: GraphData) -> list[dict]:
+    """Resolve legacy GraphRAG context source IDs to documents/previews."""
+    if sources_df is None or sources_df.empty or "id" not in sources_df.columns:
         return []
 
     tu_to_doc = _build_text_unit_lookup(data)
     doc_to_title = _build_doc_title_lookup(data)
     has_mapping = bool(tu_to_doc and doc_to_title)
-
     results: list[dict] = []
 
     for _, src_row in sources_df.iterrows():
         src_id = src_row.get("id")
         preview = _make_text_preview(src_row.get("text", ""))
-
         entry: dict = {"text_unit_id": str(src_id)}
-
         if has_mapping:
             entry["document"] = _resolve_document(src_id, tu_to_doc, doc_to_title)
-
         if preview:
             entry["text_preview"] = preview
-
         results.append(entry)
 
     return results
+
+
+def resolve_text_unit_ids(source_ids: list[str], data: GraphData, limit: int) -> tuple[list[dict], list[str]]:
+    """Resolve actual text-unit IDs for retrieval-only MCP source lookup."""
+    rows_by_id = {str(row.get("id")): row for _, row in data.text_units.iterrows()}
+    doc_titles = _build_doc_title_lookup(data)
+
+    unique_ids: list[str] = []
+    seen: set[str] = set()
+    for source_id in source_ids:
+        key = str(source_id)
+        if key not in seen:
+            seen.add(key)
+            unique_ids.append(key)
+
+    results: list[dict] = []
+    missing: list[str] = []
+    for source_id in unique_ids:
+        row = rows_by_id.get(source_id)
+        if row is None:
+            missing.append(source_id)
+            continue
+        if len(results) >= limit:
+            continue
+
+        entry: dict = {"text_unit_id": source_id}
+        document_id = row.get("document_id")
+        if document_id is not None:
+            document_key = str(document_id)
+            entry["document_id"] = document_key
+            title = doc_titles.get(document_key)
+            if title:
+                entry["document_title"] = title
+        preview = _make_text_preview(row.get("text", ""))
+        if preview:
+            entry["text_preview"] = preview
+        results.append(entry)
+
+    return results, missing
 
 
 def get_unique_documents(sources: list[dict]) -> list[str]:
