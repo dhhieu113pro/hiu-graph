@@ -50,6 +50,7 @@ class RelationshipInfo(TypedDict):
     direction: str
     description: NotRequired[str]
     weight: NotRequired[float]
+    combined_degree: NotRequired[float]
     rank: NotRequired[float]
 
 
