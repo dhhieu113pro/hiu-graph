@@ -66,6 +66,24 @@ For manual testing:
 npx @modelcontextprotocol/inspector
 ```
 
+## Container image
+
+Every push to `master` publishes a container to GHCR:
+
+```powershell
+docker pull ghcr.io/dhhieu113pro/hiu-graph:latest
+docker run --rm -p 8011:8011 `
+  -v "${PWD}\output:/app/output:ro" `
+  -e LLAMA_CPP_BASE_URL=http://host.docker.internal:8080 `
+  -e LLAMA_CPP_MODEL=remote-model `
+  -e LLAMA_CPP_MODEL_NAME=local-gemma `
+  ghcr.io/dhhieu113pro/hiu-graph:latest
+```
+
+The image runs only the MCP server. Build the GraphRAG index first with the
+local bootstrap, then mount `output/`. llama.cpp must be reachable from the
+container at `LLAMA_CPP_BASE_URL`.
+
 ## Layout
 
 ```text
