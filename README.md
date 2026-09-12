@@ -98,3 +98,8 @@ src/maf_graphrag/mcp_server/ MCP tools and server
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Reference and thanks
+
+This project is based on and gratefully references
+[Cristopher Coronado's maf-graphrag-series](https://github.com/cristofima/maf-graphrag-series).
