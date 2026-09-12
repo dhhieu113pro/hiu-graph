@@ -24,7 +24,7 @@ VALID_COMMUNITY_LEVELS = range(0, 5)
 
 
 class SearchContext(TypedDict):
-    """Context metadata returned by search tools."""
+    """Context metadata returned by legacy generative search tools."""
 
     entities_used: NotRequired[int]
     relationships_used: NotRequired[int]
@@ -34,12 +34,48 @@ class SearchContext(TypedDict):
 
 
 class SearchResult(TypedDict):
-    """Successful search response from local or global search tools."""
+    """Legacy successful response from generative local/global search tools."""
 
     answer: str
     context: SearchContext
     sources: NotRequired[list[dict[str, Any]]]
     search_type: str
+
+
+class SemanticMatch(TypedDict):
+    """One semantic text-unit retrieval match."""
+
+    text_unit_id: str
+    text: str
+    score: float
+    document_ids: NotRequired[list[str]]
+
+
+class SemanticSearchResult(TypedDict):
+    """Retrieval-only semantic text search response."""
+
+    matches: list[SemanticMatch]
+    returned: int
+    query_type: str
+
+
+class EntitySearchMatch(TypedDict):
+    """One semantic entity retrieval match."""
+
+    entity_id: str
+    name: str
+    type: str
+    description: str
+    community_ids: list[Any]
+    score: float
+
+
+class EntitySearchResult(TypedDict):
+    """Retrieval-only semantic entity search response."""
+
+    matches: list[EntitySearchMatch]
+    returned: int
+    query_type: str
 
 
 class EntityInfo(TypedDict):
@@ -119,7 +155,7 @@ def handle_tool_errors(
     returning a ``ToolError`` dict so the MCP response stays well-structured.
 
     Args:
-        tool_name: Human-readable name used in error messages (e.g. "Local search").
+        tool_name: Human-readable name used in error messages.
     """
 
     def decorator(
