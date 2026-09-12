@@ -26,4 +26,4 @@ EXPOSE 8011
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30m --retries=3 \
     CMD python -c "import socket; s=socket.create_connection(('127.0.0.1', 8011), 3); s.close()" || exit 1
 
-CMD ["uv", "run", "--no-sync", "python", "docker_entrypoint.py"]
+CMD ["/app/.venv/bin/python", "docker_entrypoint.py"]
