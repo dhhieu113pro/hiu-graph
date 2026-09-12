@@ -57,3 +57,8 @@ class TestMCPConfig:
 
         assert isinstance(config.port, int)
         assert config.port == 8080
+
+    def test_lancedb_dir_is_resolved_under_output_dir(self, tmp_path):
+        config = MCPConfig(graphrag_root=tmp_path, output_dir=Path("output"))
+
+        assert config.lancedb_dir == (tmp_path / "output" / "lancedb").resolve()
