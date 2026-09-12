@@ -74,3 +74,9 @@ class MCPConfig(BaseModel):
         """Full server URL."""
 
         return f"http://{self.host}:{self.port}"
+
+    @property
+    def lancedb_dir(self) -> Path:
+        """Resolved LanceDB directory inside the GraphRAG output directory."""
+
+        return self.output_dir / "lancedb"
