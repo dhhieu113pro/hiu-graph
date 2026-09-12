@@ -1,4 +1,4 @@
-"""Shared type definitions and error handling for MCP tool responses."""
+"""Shared type definitions and error handling for retrieval-only MCP responses."""
 
 import functools
 import logging
@@ -13,21 +13,6 @@ MAX_QUERY_LENGTH = 2000
 MAX_ENTITY_NAME_LENGTH = 200
 MAX_LIMIT = 100
 VALID_COMMUNITY_LEVELS = range(0, 5)
-
-
-class SearchContext(TypedDict):
-    entities_used: NotRequired[int]
-    relationships_used: NotRequired[int]
-    reports_used: NotRequired[int]
-    communities_analyzed: NotRequired[int]
-    documents: NotRequired[list[str]]
-
-
-class SearchResult(TypedDict):
-    answer: str
-    context: SearchContext
-    sources: NotRequired[list[dict[str, Any]]]
-    search_type: str
 
 
 class SemanticMatch(TypedDict):
