@@ -25,7 +25,6 @@ def create_mcp_tool(mcp_url: str | None = None) -> MCPStreamableHTTPTool:
     url_value = mcp_url or config.mcp_server_url
     url = str(url_value)
 
-    # Normalize FastMCP streamable endpoint to /mcp for Agent Framework clients.
     if url.endswith("/sse"):
         url = url.replace("/sse", "/mcp")
     elif not url.endswith("/mcp"):
@@ -36,7 +35,7 @@ def create_mcp_tool(mcp_url: str | None = None) -> MCPStreamableHTTPTool:
     return MCPStreamableHTTPTool(
         name="graphrag",
         url=url,
-        description="Query the GraphRAG knowledge graph for entity and thematic information",
+        description="Retrieve structured evidence, entities, relationships, and sources from the GraphRAG knowledge graph",
     )
 
 
