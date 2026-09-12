@@ -57,7 +57,6 @@ As this series progresses through Part 8-11, additional documentation will be ad
 ## Related Resources
 
 - **Main README**: [../README.md](../README.md)
-- **Infrastructure**: [../infra/README.md](../infra/README.md)
 - **GraphRAG Settings**: [../settings.yaml](../settings.yaml)
 
 ---
