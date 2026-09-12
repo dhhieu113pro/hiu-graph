@@ -1,4 +1,11 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS source
+
+WORKDIR /context
+COPY . .
+RUN mkdir -p /prepared-output \
+    && if [ -d /context/output ]; then cp -a /context/output/. /prepared-output/; fi
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 WORKDIR /app
 
@@ -10,19 +17,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     GRAPHRAG_ROOT=/app \
     FASTEMBED_CACHE_DIR=/data/fastembed
 
-COPY pyproject.toml uv.lock ./
+COPY --from=source /context/pyproject.toml /context/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY settings.yaml .env.example run_mcp_server.py ./
-COPY prompts ./prompts
-COPY src ./src
-COPY output ./output
+COPY --from=source /context/settings.yaml /context/.env.example /context/run_mcp_server.py /context/docker_entrypoint.py ./
+COPY --from=source /context/prompts ./prompts
+COPY --from=source /context/input ./input
+COPY --from=source /context/src ./src
+COPY --from=source /prepared-output ./output
 
 RUN mkdir -p /app/output /app/cache /data/fastembed
 
 EXPOSE 8011
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30m --retries=3 \
     CMD python -c "import socket; s=socket.create_connection(('127.0.0.1', 8011), 3); s.close()" || exit 1
 
-CMD ["uv", "run", "--no-sync", "python", "run_mcp_server.py"]
+CMD ["/app/.venv/bin/python", "docker_entrypoint.py"]
