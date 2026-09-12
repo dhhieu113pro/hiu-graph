@@ -68,26 +68,30 @@ npx @modelcontextprotocol/inspector
 
 ## Container image
 
-Changes to the documents or runtime publish a ready-to-use container to GHCR.
-The GitHub Action first runs GraphRAG indexing on a self-hosted runner with
-llama.cpp, then packages the generated index into the image:
+After local indexing, publish a ready-to-use container to GHCR:
 
 [View the `hiu-graph` package on GitHub Container Registry](https://github.com/dhhieu113pro/hiu-graph/pkgs/container/hiu-graph)
 
 ```powershell
+docker login ghcr.io
+.\publish_container.ps1
+```
+
+End users can then run:
+
+```powershell
 docker pull ghcr.io/dhhieu113pro/hiu-graph:latest
 docker run --rm -p 8011:8011 `
-  -v "${PWD}\output:/app/output:ro" `
   -e LLAMA_CPP_BASE_URL=http://host.docker.internal:8080 `
   -e LLAMA_CPP_MODEL=remote-model `
   -e LLAMA_CPP_MODEL_NAME=local-gemma `
   ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
 
-The image already contains the GraphRAG index, so end users do not need to
-index locally. llama.cpp must still be reachable from the container at
-`LLAMA_CPP_BASE_URL`. Configure the repository secret `LLAMA_CPP_MODEL` with
-the GGUF path on the self-hosted Windows runner.
+The image contains the GraphRAG index, so end users do not need to index
+locally. llama.cpp must still be reachable from the container at
+`LLAMA_CPP_BASE_URL`. The end-user machine must provide that llama.cpp
+endpoint; the container runs the MCP server and uses the embedded index.
 
 ## Layout
 
@@ -95,6 +99,7 @@ the GGUF path on the self-hosted Windows runner.
 input/documents/             source documents
 output/                      generated Parquet and LanceDB index
 bootstrap_local.ps1          llama.cpp + index + MCP bootstrap
+publish_container.ps1        build and push indexed image to GHCR
 run_mcp_server.py            FastMCP entry point
 src/maf_graphrag/core/       indexing and search
 src/maf_graphrag/mcp_server/ MCP tools and server
