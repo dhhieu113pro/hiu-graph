@@ -1,4 +1,11 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS source
+
+WORKDIR /context
+COPY . .
+RUN mkdir -p /prepared-output \
+    && if [ -d /context/output ]; then cp -a /context/output/. /prepared-output/; fi
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 WORKDIR /app
 
@@ -10,14 +17,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     GRAPHRAG_ROOT=/app \
     FASTEMBED_CACHE_DIR=/data/fastembed
 
-COPY pyproject.toml uv.lock ./
+COPY --from=source /context/pyproject.toml /context/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY settings.yaml .env.example run_mcp_server.py docker_entrypoint.py ./
-COPY prompts ./prompts
-COPY input ./input
-COPY src ./src
-COPY output ./output
+COPY --from=source /context/settings.yaml /context/.env.example /context/run_mcp_server.py /context/docker_entrypoint.py ./
+COPY --from=source /context/prompts ./prompts
+COPY --from=source /context/input ./input
+COPY --from=source /context/src ./src
+COPY --from=source /prepared-output ./output
 
 RUN mkdir -p /app/output /app/cache /data/fastembed
 
