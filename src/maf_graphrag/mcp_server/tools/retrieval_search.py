@@ -27,14 +27,18 @@ def _get_vector_store() -> LanceDbVectorStore:
     return LanceDbVectorStore(MCPConfig.from_env().lancedb_dir)
 
 
-def _as_string_list(value: Any) -> list[str]:
+def _as_list(value: Any) -> list[Any]:
     if value is None:
         return []
     if hasattr(value, "tolist"):
         value = value.tolist()
     if isinstance(value, (list, tuple, set)):
-        return [str(item) for item in value if item is not None]
-    return [str(value)]
+        return [item for item in value if item is not None]
+    return [value]
+
+
+def _as_string_list(value: Any) -> list[str]:
+    return [str(item) for item in _as_list(value)]
 
 
 def _document_ids_from_row(row: Any) -> list[str]:
@@ -99,7 +103,7 @@ async def search_entities_tool(query: str, limit: int = 10) -> EntitySearchResul
                 name=str(row.get("title", row.get("name", ""))),
                 type=str(row.get("type", "unknown")),
                 description=str(row.get("description", "")),
-                community_ids=_as_string_list(row.get("community_ids")),
+                community_ids=_as_list(row.get("community_ids")),
                 score=match.score,
             )
         )
