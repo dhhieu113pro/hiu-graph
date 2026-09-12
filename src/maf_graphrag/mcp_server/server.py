@@ -1,132 +1,62 @@
 """
 GraphRAG MCP Server
 
-FastMCP server that exposes GraphRAG tools via HTTP/SSE for MCP-compatible clients.
-
-Usage:
-    # Development
-    uv run python -m maf_graphrag.mcp_server.server
-
-    # Production (with uvicorn)
-    uv run uvicorn maf_graphrag.mcp_server.server:app --host 0.0.0.0 --port 8011
+FastMCP server that exposes retrieval-only GraphRAG tools via Streamable HTTP.
 """
 
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
-from maf_graphrag.core.search import DEFAULT_RESPONSE_TYPE
 from maf_graphrag.mcp_server.config import MCPConfig
-from maf_graphrag.mcp_server.tools import entity_query_tool, global_search_tool, local_search_tool
-from maf_graphrag.mcp_server.tools.types import EntityQueryResult, SearchResult, ToolError
+from maf_graphrag.mcp_server.tools import (
+    entity_query_tool,
+    get_relationships_tool,
+    get_sources_tool,
+    search_entities_tool,
+    semantic_search_tool,
+)
+from maf_graphrag.mcp_server.tools.types import (
+    EntityQueryResult,
+    EntitySearchResult,
+    RelationshipResult,
+    SemanticSearchResult,
+    SourceResult,
+    ToolError,
+)
 
-# Initialize configuration
 config = MCPConfig.from_env()
-
-# Create FastMCP server with explicit version metadata
 mcp = FastMCP(name=config.server_name, version=config.server_version)
 
 
 @mcp.tool()
-async def search_knowledge_graph(
-    query: str, search_type: str = "local", community_level: int = 2, response_type: str = DEFAULT_RESPONSE_TYPE
-) -> SearchResult | ToolError:
-    """
-    Search the GraphRAG knowledge graph.
-
-    This is the main entry point for GraphRAG queries. It routes to local or global search
-    based on the search_type parameter.
-
-    Args:
-        query: The question to answer
-        search_type: "local" for entity-focused or "global" for thematic search
-        community_level: Community hierarchy level (0-2, higher = smaller communities)
-        response_type: Format of response
-
-    Returns:
-        dict: Search results with answer, context, and sources
-    """
-    if search_type.lower() == "local":
-        return await local_search_tool(query=query, community_level=community_level, response_type=response_type)
-    elif search_type.lower() == "global":
-        return await global_search_tool(query=query, community_level=community_level, response_type=response_type)
-    else:
-        return ToolError(error=f"Invalid search_type: {search_type}. Must be 'local' or 'global'")
+async def semantic_search(query: str, limit: int = 10) -> SemanticSearchResult | ToolError:
+    """Retrieve semantically relevant source text from the indexed knowledge graph."""
+    return await semantic_search_tool(query, limit)
 
 
 @mcp.tool()
-async def local_search(
-    query: str, community_level: int = 2, response_type: str = DEFAULT_RESPONSE_TYPE
-) -> SearchResult | ToolError:
-    """
-    Perform entity-focused search on the knowledge graph.
-
-    Best for specific questions about entities and relationships:
-    - "Who leads Project Alpha?"
-    - "What technologies are used in Project Beta?"
-    - "Who resolved the GraphRAG incident?"
-
-    Args:
-        query: The question to answer
-        community_level: Community hierarchy level (0-2)
-        response_type: Format of response
-
-    Returns:
-        dict: Search results with answer and context
-    """
-    return await local_search_tool(query, community_level, response_type)
-
-
-@mcp.tool()
-async def global_search(
-    query: str, community_level: int = 2, response_type: str = DEFAULT_RESPONSE_TYPE
-) -> SearchResult | ToolError:
-    """
-    Perform thematic search across the entire knowledge graph.
-
-    Best for broad organizational questions:
-    - "What are the main projects?"
-    - "Summarize the organizational structure"
-    - "What Azure services are used?"
-
-    Args:
-        query: The question to answer
-        community_level: Community hierarchy level (0-2)
-        response_type: Format of response
-
-    Returns:
-        dict: Search results with answer and context
-    """
-    return await global_search_tool(query, community_level, response_type, dynamic_community_selection=True)
-
-
-@mcp.tool()
-async def list_entities(entity_type: str | None = None, limit: int = 10) -> EntityQueryResult | ToolError:
-    """
-    List entities from the knowledge graph.
-
-    Args:
-        entity_type: Filter by type (e.g., "person", "organization", "project")
-        limit: Maximum number of entities to return
-
-    Returns:
-        dict: List of entities with details
-    """
-    return await entity_query_tool(entity_type=entity_type, limit=limit)
+async def search_entities(query: str, limit: int = 10) -> EntitySearchResult | ToolError:
+    """Retrieve entities whose indexed descriptions are semantically relevant to a query."""
+    return await search_entities_tool(query, limit)
 
 
 @mcp.tool()
 async def get_entity(entity_name: str) -> EntityQueryResult | ToolError:
-    """
-    Get details about a specific entity.
-
-    Args:
-        entity_name: Name of the entity to look up
-
-    Returns:
-        dict: Entity details
-    """
+    """Get indexed metadata for one entity by name."""
     return await entity_query_tool(entity_name=entity_name, limit=1)
+
+
+@mcp.tool()
+async def get_relationships(entity_name: str, limit: int = 20) -> RelationshipResult | ToolError:
+    """Return graph relationships connected to an indexed entity."""
+    return await get_relationships_tool(entity_name, limit)
+
+
+@mcp.tool()
+async def get_sources(source_ids: list[str], limit: int = 20) -> SourceResult | ToolError:
+    """Resolve text-unit IDs to indexed source/document evidence."""
+    return await get_sources_tool(source_ids, limit)
 
 
 def create_mcp_server() -> FastMCP:
@@ -134,7 +64,6 @@ def create_mcp_server() -> FastMCP:
     return mcp
 
 
-# CORS middleware for browser-based and MCP Inspector clients
 _cors_middleware = [
     Middleware(
         CORSMiddleware,
@@ -146,28 +75,22 @@ _cors_middleware = [
     )
 ]
 
-# ASGI app: Streamable HTTP (for MCPStreamableHTTPTool & MCP Inspector)
 app = mcp.http_app(middleware=_cors_middleware)
 
 
 if __name__ == "__main__":
-    # Development server
-    print("🚀 Starting GraphRAG MCP Server")
+    print("🚀 Starting GraphRAG Retrieval MCP Server")
     print(f"   Server: {config.server_name} v{config.server_version}")
     print(f"   URL: {config.server_url}")
     print(f"   GraphRAG Root: {config.graphrag_root}")
     print("\n📋 Available Tools:")
-    print("   - search_knowledge_graph(query, search_type='local|global')")
-    print("   - local_search(query)")
-    print("   - global_search(query)")
-    print("   - list_entities(entity_type, limit)")
+    print("   - semantic_search(query, limit=10)")
+    print("   - search_entities(query, limit=10)")
     print("   - get_entity(entity_name)")
-    print("\n✨ Server ready for Agent Framework or MCP clients")
-    print("\n🔗 Connect:")
-    print(f"   Agent Framework: {config.server_url}/mcp")
-    print(f"   MCP Inspector: Transport=Streamable HTTP, URL={config.server_url}/mcp")
+    print("   - get_relationships(entity_name, limit=20)")
+    print("   - get_sources(source_ids, limit=20)")
+    print("\n✨ Retrieval server ready; no completion LLM is used by MCP tools")
 
-    # Run with uvicorn
     import uvicorn
 
     uvicorn.run(app, host=config.host, port=config.port)
