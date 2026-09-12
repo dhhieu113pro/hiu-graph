@@ -14,9 +14,6 @@ from typing_extensions import NotRequired, TypedDict  # noqa: UP035
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Input validation constants (system boundary)
-# ---------------------------------------------------------------------------
 MAX_QUERY_LENGTH = 2000
 MAX_ENTITY_NAME_LENGTH = 200
 MAX_LIMIT = 100
@@ -43,8 +40,6 @@ class SearchResult(TypedDict):
 
 
 class SemanticMatch(TypedDict):
-    """One semantic text-unit retrieval match."""
-
     text_unit_id: str
     text: str
     score: float
@@ -52,16 +47,12 @@ class SemanticMatch(TypedDict):
 
 
 class SemanticSearchResult(TypedDict):
-    """Retrieval-only semantic text search response."""
-
     matches: list[SemanticMatch]
     returned: int
     query_type: str
 
 
 class EntitySearchMatch(TypedDict):
-    """One semantic entity retrieval match."""
-
     entity_id: str
     name: str
     type: str
@@ -71,16 +62,29 @@ class EntitySearchMatch(TypedDict):
 
 
 class EntitySearchResult(TypedDict):
-    """Retrieval-only semantic entity search response."""
-
     matches: list[EntitySearchMatch]
     returned: int
     query_type: str
 
 
-class EntityInfo(TypedDict):
-    """Single entity in an entity query response."""
+class RelationshipInfo(TypedDict):
+    source: str
+    target: str
+    counterpart: str
+    direction: str
+    description: NotRequired[str]
+    weight: NotRequired[float]
+    rank: NotRequired[float]
 
+
+class RelationshipResult(TypedDict):
+    entity: str
+    relationships: list[RelationshipInfo]
+    returned: int
+    query_type: str
+
+
+class EntityInfo(TypedDict):
     name: str
     type: str
     description: str
@@ -88,8 +92,6 @@ class EntityInfo(TypedDict):
 
 
 class EntityQueryResult(TypedDict):
-    """Successful entity query response."""
-
     entities: list[EntityInfo]
     total_found: int
     returned: int
@@ -98,8 +100,6 @@ class EntityQueryResult(TypedDict):
 
 
 class ToolError(TypedDict):
-    """Error response returned by any MCP tool."""
-
     error: str
     details: NotRequired[str]
     query: NotRequired[str]
@@ -107,13 +107,7 @@ class ToolError(TypedDict):
     entity_type: NotRequired[str | None]
 
 
-# ---------------------------------------------------------------------------
-# Input validation helpers (system boundary)
-# ---------------------------------------------------------------------------
-
-
 def validate_query(query: str) -> ToolError | None:
-    """Return a ``ToolError`` if *query* is invalid, else ``None``."""
     if not query or not query.strip():
         return ToolError(error="Query must not be empty.")
     if len(query) > MAX_QUERY_LENGTH:
@@ -122,21 +116,18 @@ def validate_query(query: str) -> ToolError | None:
 
 
 def validate_community_level(community_level: int | None) -> ToolError | None:
-    """Return a ``ToolError`` if *community_level* is out of range."""
     if community_level is not None and community_level not in VALID_COMMUNITY_LEVELS:
         return ToolError(error=f"community_level must be 0–{VALID_COMMUNITY_LEVELS.stop - 1}.")
     return None
 
 
 def validate_limit(limit: int) -> ToolError | None:
-    """Return a ``ToolError`` if *limit* is out of range."""
     if limit < 1 or limit > MAX_LIMIT:
         return ToolError(error=f"limit must be 1–{MAX_LIMIT}.")
     return None
 
 
 def validate_entity_name(name: str | None) -> ToolError | None:
-    """Return a ``ToolError`` if *name* is too long."""
     if name is not None and len(name) > MAX_ENTITY_NAME_LENGTH:
         return ToolError(error=f"entity_name must be at most {MAX_ENTITY_NAME_LENGTH} characters.")
     return None
@@ -149,14 +140,7 @@ _T = TypeVar("_T")
 def handle_tool_errors(
     tool_name: str,
 ) -> Callable[[Callable[_P, Coroutine[Any, Any, _T]]], Callable[_P, Coroutine[Any, Any, _T | ToolError]]]:
-    """Decorator that wraps MCP tool functions with standard error handling.
-
-    Catches ``FileNotFoundError`` (missing index) and generic exceptions,
-    returning a ``ToolError`` dict so the MCP response stays well-structured.
-
-    Args:
-        tool_name: Human-readable name used in error messages.
-    """
+    """Wrap tool exceptions in the structured MCP ToolError contract."""
 
     def decorator(
         fn: Callable[_P, Coroutine[Any, Any, _T]],
