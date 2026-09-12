@@ -9,6 +9,9 @@ from graphrag.config.load_config import load_config
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 
+DEFAULT_FASTEMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+DEFAULT_FASTEMBED_CACHE_DIR = ".cache/fastembed"
+
 
 def get_root_dir() -> Path:
     """Get the project root directory (where settings.yaml is located)."""
@@ -24,6 +27,16 @@ def get_root_dir() -> Path:
         return cwd
 
     raise FileNotFoundError("Could not find settings.yaml. Make sure you're running from the project root directory.")
+
+
+def get_fastembed_model_name() -> str:
+    """Return the shared FastEmbed model used for indexing and MCP retrieval."""
+    return os.getenv("FASTEMBED_MODEL_NAME", DEFAULT_FASTEMBED_MODEL_NAME).strip() or DEFAULT_FASTEMBED_MODEL_NAME
+
+
+def get_fastembed_cache_dir() -> str:
+    """Return the shared FastEmbed cache directory."""
+    return os.getenv("FASTEMBED_CACHE_DIR", DEFAULT_FASTEMBED_CACHE_DIR).strip() or DEFAULT_FASTEMBED_CACHE_DIR
 
 
 class CoreEnvConfig(BaseModel):
@@ -60,6 +73,8 @@ def get_config() -> GraphRagConfig:
     """Load GraphRAG configuration from settings.yaml after validating environment variables."""
 
     CoreEnvConfig.from_env()
+    os.environ.setdefault("FASTEMBED_MODEL_NAME", get_fastembed_model_name())
+    os.environ.setdefault("FASTEMBED_CACHE_DIR", get_fastembed_cache_dir())
     root_dir = get_root_dir()
     return load_config(root_dir=root_dir)
 
@@ -74,13 +89,14 @@ def get_output_dir() -> Path:
     return root / output_base
 
 
-def validate_output_files(required: list[str] | None = None) -> bool:
+def validate_output_files(required: list[str] | None = None, output_dir: Path | None = None) -> bool:
     """
     Check if required output files exist.
 
     Args:
         required: List of required file names (without path).
                   Defaults to core files needed for search.
+        output_dir: Explicit output directory. When omitted, uses GraphRAG config.
 
     Returns:
         True if all files exist, False otherwise.
@@ -98,8 +114,8 @@ def validate_output_files(required: list[str] | None = None) -> bool:
             "text_units.parquet",
         ]
 
-    output_dir = get_output_dir()
-    missing = [f for f in required if not (output_dir / f).exists()]
+    resolved_output_dir = output_dir if output_dir is not None else get_output_dir()
+    missing = [f for f in required if not (resolved_output_dir / f).exists()]
 
     if missing:
         raise FileNotFoundError(
