@@ -79,6 +79,9 @@ async def get_relationships_tool(entity_name: str, limit: int = 20) -> Relations
         weight = _optional_number(row.get("weight"))
         if weight is not None:
             item["weight"] = weight
+        combined_degree = _optional_number(row.get("combined_degree"))
+        if combined_degree is not None:
+            item["combined_degree"] = combined_degree
         rank = _optional_number(row.get("rank"))
         if rank is not None:
             item["rank"] = rank
