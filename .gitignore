@@ -1,0 +1,71 @@
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# GraphRAG output (large files, regenerate locally)
+output/
+cache/
+.cache/
+
+# Terraform
+infra/**/.terraform/
+infra/**/*.tfstate
+infra/**/*.tfstate.backup
+infra/**/tfplan
+infra/**/*.tfplan
+infra/**/terraform.tfvars
+infra/**/backend.hcl
+infra/**/.terraform.lock.hcl
+
+# Testing
+.coverage
+.coverage.*
+coverage.xml
+junit.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local only files
+articles/*
+logs/
+devTools/
+*.log

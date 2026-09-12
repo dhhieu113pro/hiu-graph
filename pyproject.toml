@@ -1,0 +1,132 @@
+[project]
+name = "maf-graphrag-series"
+version = "4.2.0"
+description = "Local GraphRAG knowledge graph exposed through an MCP server"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "graphrag",
+    "mcp",
+    "llama.cpp",
+    "knowledge-graph",
+    "rag",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "graphrag>=3.0.9,<3.1.0",
+    "pandas>=2.3.0,<3.0.0",
+    "pyarrow>=22.0.0,<23.0.0",
+    "pydantic>=2.13.4,<3.0.0",
+    "rich>=15.0.0,<16.0.0",
+    "python-dotenv>=1.2.2,<2.0.0",
+    "fastembed>=0.8.0,<0.9.0",
+    "fastmcp>=4.0.3,<5.0.0",
+    "uvicorn[standard]>=0.52.0,<0.53.0",
+    "httpx2>=2.5.0,<3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/cristofima/maf-graphrag-series"
+Repository = "https://github.com/cristofima/maf-graphrag-series"
+Documentation = "https://github.com/cristofima/maf-graphrag-series/tree/main/docs"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1,<10.0.0",
+    "pytest-asyncio>=1.4.0,<2.0.0",
+    "pytest-cov>=7.1.0,<8.0.0",
+    "mypy>=2.3.0,<3.0.0",
+    "ruff>=0.15.22,<0.16.0",
+    "jupyter>=1.0.0,<2.0.0",
+    "ipykernel>=6.28.0,<7.0.0",
+    "networkx>=3.0,<4.0",
+    "matplotlib>=3.7.0,<4.0.0",
+    "numpy<2.5.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
+
+# ===== Tool Configuration =====
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+addopts = "-ra -q --strict-markers --cov=src --cov-report=term-missing"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+filterwarnings = [
+]
+
+[tool.ruff.format]
+# Black-compatible formatter settings (ruff format replaces black)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["output", "cache", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long (handled by ruff format)
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"src/maf_graphrag/workflows/base.py" = ["UP035"]
+"src/maf_graphrag/mcp_server/tools/types.py" = ["UP035"]
+"tests/**/*.py" = ["PLC0415", "RUF043"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+exclude = ["output", "cache", ".venv"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disable_error_code = ["arg-type", "index"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
