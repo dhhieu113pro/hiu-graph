@@ -88,3 +88,17 @@ class TestGetGraphData:
                 get_graph_data()
 
         assert cache_module._cached_data is None
+
+    def test_explicit_output_dir_is_forwarded_without_llama_config(self, tmp_path, monkeypatch):
+        from maf_graphrag.mcp_server.tools._data_cache import get_graph_data
+
+        monkeypatch.delenv("LLAMA_CPP_BASE_URL", raising=False)
+        monkeypatch.delenv("LLAMA_CPP_MODEL", raising=False)
+        output_dir = tmp_path / "output"
+        mock_data = _make_graph_data()
+
+        with patch("maf_graphrag.mcp_server.tools._data_cache.load_all", return_value=mock_data) as mock_load:
+            result = get_graph_data(output_dir)
+
+        mock_load.assert_called_once_with(output_dir=output_dir)
+        assert result is mock_data
