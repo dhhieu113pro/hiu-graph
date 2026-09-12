@@ -21,14 +21,14 @@ def _graph_data() -> GraphData:
                     "target": "Sarah Chen",
                     "description": "led by",
                     "weight": 2.0,
-                    "rank": 1,
+                    "combined_degree": 3,
                 },
                 {
                     "source": "PostgreSQL",
                     "target": "Project Alpha",
                     "description": "used by",
                     "weight": 1.0,
-                    "rank": 2,
+                    "combined_degree": 2,
                 },
             ]
         ),
@@ -49,6 +49,7 @@ async def test_get_relationships_handles_both_edge_directions(monkeypatch):
     assert [edge["counterpart"] for edge in result["relationships"]] == ["Sarah Chen", "PostgreSQL"]
     assert result["relationships"][0]["direction"] == "outgoing"
     assert result["relationships"][1]["direction"] == "incoming"
+    assert result["relationships"][0]["combined_degree"] == 3.0
     assert result["returned"] == 2
 
 
