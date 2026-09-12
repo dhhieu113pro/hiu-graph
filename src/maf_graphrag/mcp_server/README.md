@@ -1,247 +1,211 @@
-# GraphRAG MCP Server
+# GraphRAG Retrieval MCP Server
 
-Exposes GraphRAG functionality as MCP (Model Context Protocol) tools for agent and workflow integration.
-
-The package exposes a validated `MCPConfig` model plus the `create_mcp_server` factory and `app` ASGI object. Use the factory when you need to embed the server inside another host process; import `app` directly for ASGI runners like Uvicorn or Gunicorn.
+Exposes an indexed GraphRAG knowledge graph as retrieval-only MCP (Model Context Protocol) tools. Indexing can use Gemma/llama.cpp for graph extraction and summarization, but MCP query-time tools do not call a completion LLM.
 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    AF["Microsoft Agent Framework\nMCPStreamableHTTPTool client"] -->|"Streamable HTTP /mcp"| MCP
-    MCP["GraphRAG MCP Server (FastMCP)\nsearch_knowledge_graph\nlocal_search\nglobal_search\nlist_entities\nget_entity"] --> KG
-    KG["GraphRAG Knowledge Graph (core)\nentities\nrelationships\ncommunities\ndocuments"]
+flowchart LR
+    HOST["Host LLM\nChatGPT / Claude / Codex"] -->|"Streamable HTTP /mcp"| MCP
+    MCP["Hiu Graph MCP\nretrieval only"] --> FE["FastEmbed\nquery embedding"]
+    FE --> LDB["LanceDB\ntext/entity vectors"]
+    MCP --> PQ["Parquet\nentities / relationships / sources"]
+    LDB --> MCP
+    PQ --> MCP
+    MCP -->|"structured evidence"| HOST
 ```
 
-## Quick Start
+The lifecycle is intentionally split:
 
-> FastMCP 4.x implements the Model Context Protocol [Stateless 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28) contract. Agent Framework's MCPStreamableHTTPTool interoperates with the Streamable HTTP transport, but its 1.17 release still stops at the legacy initialize handshake instead of issuing `server/discover`, so modern-only metadata is unused until that client adds discovery support.
+```text
+Indexing / re-indexing:
+  Documents -> Gemma/llama.cpp -> graph artifacts
+            -> FastEmbed       -> vector artifacts
 
-### Start MCP Server
+MCP runtime with an existing index:
+  Query -> FastEmbed -> LanceDB/Parquet -> structured evidence
+  No LiteLLM or llama.cpp completion call.
+```
+
+## Quick start
 
 ```bash
-# Using Python module
-uv run python -m maf_graphrag.mcp_server.server
-
-# Or using convenience script
 uv run python run_mcp_server.py
 ```
 
-Server will start at: `http://localhost:8011`
+Server endpoint: `http://localhost:8011/mcp`
 
-At startup, the server emits structured logs to console and to `logs/run_mcp_server_YYYYMMDD.log`.
+If the index already exists, `LLAMA_CPP_BASE_URL` and the GGUF model do not need to be available for MCP queries. The Docker entrypoint only waits for llama.cpp when it detects a missing/incomplete index and must index first.
 
-### Test Tools
+## MCP tools
 
-```bash
-# Option A: Test in notebook (recommended, no server needed)
-jupyter notebook notebooks/02_test_mcp_server.ipynb
+The server advertises exactly five tools.
 
-# Option B: Use MCP Inspector (interactive testing via server)
-uv run python run_mcp_server.py  # Start server first
-npx @modelcontextprotocol/inspector
-# In the UI: Transport = Streamable HTTP, URL = http://localhost:8011/mcp
-```
+### `semantic_search(query, limit=10)`
 
-## MCP Tools
+Embeds the query with the same FastEmbed model used at index time and searches the `text_unit_text` LanceDB table. Returns ranked source text; it does not generate an answer.
 
-### search_knowledge_graph
+Example request:
 
-Main entry point for queries. Routes to local or global search.
-
-```python
+```json
 {
-    "query": "Who leads Project Alpha?",
-    "search_type": "local",  # "local" or "global"
-    "community_level": 2,
-    "response_type": "Multiple Paragraphs"
+  "query": "Who leads Project Alpha?",
+  "limit": 5
 }
 ```
 
-### local_search
+Representative response shape:
 
-Entity-focused search for specific questions.
-
-**Best for:**
-
-- "Who leads Project Alpha?"
-- "What technologies are used in X?"
-- "Who resolved the incident?"
-
-```python
-# Input
+```json
 {
-    "query": "Who leads Project Alpha?",
-    "community_level": 2,
-    "response_type": "Multiple Paragraphs"
-}
-
-# Response
-{
-    "answer": "Dr. Emily Harrison leads Project Alpha...",
-    "context": {
-        "entities_used": 19,
-        "relationships_used": 47,
-        "reports_used": 2,
-        "documents": ["project_alpha.md", "team_members.md"]
-    },
-    "sources": [
-        {
-            "text_unit_id": "0",
-            "document": "project_alpha.md",
-            "text_preview": "# Project Alpha - Next-Generation AI Assistant..."
-        }
-    ],
-    "search_type": "local"
+  "matches": [
+    {
+      "text_unit_id": "...",
+      "text": "...",
+      "score": 0.91,
+      "document_ids": ["..."]
+    }
+  ],
+  "returned": 1,
+  "query_type": "semantic_text"
 }
 ```
 
-> **Source traceability**: Local search provides full document-level traceability by resolving text unit IDs through the chain: `text_unit → document_id → document title`.
+### `search_entities(query, limit=10)`
 
-### global_search
+Searches the `entity_description` LanceDB table and hydrates entity metadata from `entities.parquet`.
 
-Thematic search across the organization via map-reduce over community reports.
-
-**Best for:**
-
-- "What are the main projects?"
-- "Summarize the organizational structure"
-- "What Azure services are used?"
-
-```python
-# Input
+```json
 {
-    "query": "What are the main projects?",
-    "community_level": 2,
-    "response_type": "Multiple Paragraphs"
-}
-
-# Response
-{
-    "answer": "The main projects at TechVenture are...",
-    "context": {
-        "communities_analyzed": 32
-    },
-    "search_type": "global"
+  "query": "Project Alpha",
+  "limit": 5
 }
 ```
 
-> **No source traceability**: Global search synthesizes answers from community reports (pre-aggregated summaries), not individual text chunks. Document-level provenance is not available by design in GraphRAG's global search.
+Returns entity ID, name, type, description, community IDs, and relevance score.
 
-### list_entities
+### `get_entity(entity_name)`
 
-List entities from the knowledge graph.
+Performs direct case-insensitive entity lookup from the generated graph data. No vector search or completion LLM is involved.
 
-```python
+```json
 {
-    "entity_type": "project",  # Optional: filter by type
-    "limit": 10
+  "entity_name": "Project Alpha"
 }
 ```
 
-### get_entity
+### `get_relationships(entity_name, limit=20)`
 
-Get details about a specific entity.
+Traverses direct incoming/outgoing relationship rows for an indexed entity.
 
-```python
+```json
 {
-    "entity_name": "Dr. Emily Harrison"
+  "entity_name": "Project Alpha",
+  "limit": 20
 }
 ```
+
+Returns source, target, counterpart, direction, and available relationship description/weight/rank fields.
+
+### `get_sources(source_ids, limit=20)`
+
+Resolves text-unit IDs returned by `semantic_search` to source/document metadata.
+
+```json
+{
+  "source_ids": ["<text-unit-id>"],
+  "limit": 20
+}
+```
+
+Returns document IDs/titles and text previews when available, plus unresolved IDs.
+
+## Recommended host flow
+
+```text
+1. semantic_search("Who leads Project Alpha?")
+2. search_entities("Project Alpha") or get_entity("Project Alpha")
+3. get_relationships("Project Alpha")
+4. get_sources(["<text-unit-id>"])
+5. Host LLM synthesizes and cites the answer from those results.
+```
+
+This avoids an unnecessary Host LLM -> MCP -> local Gemma -> Host LLM chain.
+
+## Breaking migration
+
+The following generative MCP tools were intentionally removed from the public MCP surface:
+
+- `search_knowledge_graph`
+- `local_search`
+- `global_search`
+- `list_entities`
+
+The underlying generative GraphRAG helpers remain in `maf_graphrag.core.search` for chat and explicit non-MCP workflows. MCP callers should migrate to the five retrieval primitives above.
+
+## FastEmbed configuration
+
+Index-time and query-time embeddings must use the same model:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FASTEMBED_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Shared embedding model |
+| `FASTEMBED_CACHE_DIR` | `.cache/fastembed` | Local model cache; Docker defaults to `/data/fastembed` |
+
+MCP server configuration remains:
+
+| Variable | Default |
+| --- | --- |
+| `MCP_HOST` | `127.0.0.1` |
+| `MCP_PORT` | `8011` |
+| `GRAPHRAG_ROOT` | `.` |
+| `MCP_CORS_ORIGINS` | `http://127.0.0.1:8011` |
 
 ## Testing with MCP Inspector
 
-The [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector) is an interactive browser tool for testing MCP servers.
-
-### Setup
-
 ```bash
-# Terminal 1: Start MCP Server
+# Terminal 1
 uv run python run_mcp_server.py
 
-# Terminal 2: Launch Inspector
+# Terminal 2
 npx @modelcontextprotocol/inspector
 ```
 
-### Usage
+Use **Transport = Streamable HTTP** and **URL = `http://localhost:8011/mcp`**. The Tools tab should list exactly the five retrieval tools documented above.
 
-1. Open the Inspector at `http://localhost:6274`
-2. Set **Transport** to `Streamable HTTP` and **URL** to `http://localhost:8011/mcp`
-3. Click **Connect**
-4. Navigate to the **Tools** tab to see all 5 tools with schemas
-5. Select a tool, fill parameters, and click **Run**
+## Module structure
 
-### Development Workflow
-
-1. Make changes to tools in `mcp_server/tools/`
-2. Restart the MCP server
-3. Reconnect Inspector and test affected tools
-4. Check the **Notifications** pane for server logs
-
-## Integration Notes
-
-- Agent and workflow runtimes connect to this server through the Streamable HTTP endpoint at `/mcp`.
-- Local interactive inspection can use MCP Inspector against the same server.
-- `local_search` preserves source traceability, while `global_search` returns synthesized community-level answers.
-
-## Configuration
-
-Environment variables:
-
-| Variable           | Description                     | Default                 |
-| ------------------ | ------------------------------- | ----------------------- |
-| `MCP_HOST`         | Server host                     | `127.0.0.1`             |
-| `MCP_PORT`         | Server port                     | `8011`                  |
-| `GRAPHRAG_ROOT`    | GraphRAG root directory         | `.`                     |
-| `MCP_CORS_ORIGINS` | Comma-separated allowed origins | `http://127.0.0.1:8011` |
-
-Logging rotation knobs (optional):
-
-| Variable               | Description                               | Default    |
-| ---------------------- | ----------------------------------------- | ---------- |
-| `APP_LOG_MAX_BYTES`    | Maximum size per log file before rotation | `10485760` |
-| `APP_LOG_BACKUP_COUNT` | Number of rotated backup files to keep    | `5`        |
-
-## Module Structure
-
-```
+```text
 mcp_server/
-├── __init__.py           # Package exports
-├── config.py             # Configuration management (host, port, CORS)
-├── server.py             # FastMCP server implementation
+├── config.py
+├── server.py
+├── retrieval/
+│   ├── query_encoder.py   # cached FastEmbed query encoder
+│   └── vector_store.py    # LanceDB read adapter
 └── tools/
-    ├── __init__.py       # Tool exports
-    ├── _data_cache.py    # Lazy singleton cache for GraphRAG data
-    ├── types.py          # TypedDicts, validation helpers, error-handling decorator
-    ├── local_search.py   # Entity-focused search (with source traceability)
-    ├── global_search.py  # Thematic search (community reports only)
-    ├── entity_query.py   # Direct entity lookup
-    └── source_resolver.py # Resolves text unit IDs → document titles
+    ├── _data_cache.py
+    ├── entity_query.py
+    ├── relationships.py
+    ├── retrieval_search.py
+    ├── source_resolver.py
+    ├── sources.py
+    └── types.py
 ```
 
-## Development
+## Verification contract
 
-### Running Tests
+A release must demonstrate:
 
-```bash
-uv run pytest tests/mcp_server/test_config.py tests/mcp_server/test_server.py
-```
+1. a valid index exists;
+2. llama.cpp is stopped or unreachable;
+3. MCP starts successfully;
+4. all five advertised tools return retrieval results;
+5. MCP query logs contain no `LiteLLM completion()` lines.
 
-### Adding New Tools
-
-1. Create tool function in `mcp_server/tools/`
-2. Decorate with `@mcp.tool()` in `server.py`
-3. Update documentation
-
-### Deployment
+Run unit tests with:
 
 ```bash
-# Production with Gunicorn
-uv run gunicorn maf_graphrag.mcp_server.server:app -w 4 -k uvicorn.workers.UvicornWorker
-
-# Docker
-docker build -t graphrag-mcp .
-docker run -p 8011:8011 graphrag-mcp
+uv run pytest tests/mcp_server -q
 ```
 
 ## References
