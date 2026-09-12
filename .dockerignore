@@ -4,7 +4,6 @@
 .uv-cache
 .cache
 cache
-output
 logs
 pytest-cache-files-*
 .pytest-tmp

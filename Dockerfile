@@ -16,6 +16,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY settings.yaml .env.example run_mcp_server.py ./
 COPY prompts ./prompts
 COPY src ./src
+COPY output ./output
 
 RUN mkdir -p /app/output /app/cache /data/fastembed
 

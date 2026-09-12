@@ -1,9 +1,17 @@
-name: Publish MCP container
+name: Index and publish MCP container
 
 on:
   push:
     branches: [master]
-    tags: ["v*.*.*"]
+    paths:
+      - "input/**"
+      - "prompts/**"
+      - "src/**"
+      - "settings.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile"
+      - ".github/workflows/container-publish.yml"
   workflow_dispatch:
 
 env:
@@ -11,7 +19,93 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  index:
+    name: Build GraphRAG index
+    runs-on: [self-hosted, Windows, X64]
+    env:
+      LLAMA_CPP_MODEL: ${{ secrets.LLAMA_CPP_MODEL }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: latest
+
+      - name: Configure local llama.cpp
+        shell: pwsh
+        env:
+          LLAMA_CPP_BASE_URL: http://127.0.0.1:8080
+          LLAMA_CPP_MODEL_NAME: local-gemma
+        run: |
+          if (-not $env:LLAMA_CPP_MODEL) {
+            throw "Configure the LLAMA_CPP_MODEL repository secret with the GGUF path on the self-hosted runner."
+          }
+          @"
+          LLAMA_CPP_BASE_URL=$env:LLAMA_CPP_BASE_URL
+          LLAMA_CPP_MODEL=$env:LLAMA_CPP_MODEL
+          LLAMA_CPP_MODEL_NAME=$env:LLAMA_CPP_MODEL_NAME
+          FASTEMBED_CACHE_DIR=.cache/fastembed
+          "@ | Set-Content -Encoding utf8 .env
+
+      - name: Install dependencies
+        shell: pwsh
+        run: uv sync --frozen --no-dev
+
+      - name: Start llama.cpp if needed
+        shell: pwsh
+        run: |
+          try {
+            Invoke-RestMethod http://127.0.0.1:8080/health -TimeoutSec 3 | Out-Null
+          } catch {
+            if (-not (Get-Command llama-server.exe -ErrorAction SilentlyContinue)) {
+              throw "llama-server.exe is required on the self-hosted runner."
+            }
+            Start-Process llama-server.exe -ArgumentList @(
+              "-m", $env:LLAMA_CPP_MODEL,
+              "--alias", "local-gemma",
+              "--host", "127.0.0.1",
+              "--port", "8080",
+              "-c", "8192",
+              "-np", "2",
+              "--reasoning", "off",
+              "--temp", "0.2",
+              "--n-predict", "1200"
+            ) -WindowStyle Hidden
+          }
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              Invoke-RestMethod http://127.0.0.1:8080/health -TimeoutSec 3 | Out-Null
+              break
+            } catch {
+              if ($i -eq 89) { throw "llama.cpp did not become healthy." }
+              Start-Sleep -Seconds 2
+            }
+          }
+
+      - name: Rebuild GraphRAG index
+        shell: pwsh
+        run: |
+          if (Test-Path cache) { Remove-Item cache -Recurse -Force }
+          New-Item -ItemType Directory -Path cache -Force | Out-Null
+          $env:PYTHONPATH = "src"
+          uv run python -m maf_graphrag.core.index
+
+      - name: Upload generated index
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphrag-index
+          path: output
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
+    name: Publish ready-to-use image
+    needs: index
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,6 +114,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download generated index
+        uses: actions/download-artifact@v4
+        with:
+          name: graphrag-index
+          path: output
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -68,7 +68,9 @@ npx @modelcontextprotocol/inspector
 
 ## Container image
 
-Every push to `master` publishes a container to GHCR:
+Changes to the documents or runtime publish a ready-to-use container to GHCR.
+The GitHub Action first runs GraphRAG indexing on a self-hosted runner with
+llama.cpp, then packages the generated index into the image:
 
 [View the `hiu-graph` package on GitHub Container Registry](https://github.com/dhhieu113pro/hiu-graph/pkgs/container/hiu-graph)
 
@@ -82,9 +84,10 @@ docker run --rm -p 8011:8011 `
   ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
 
-The image runs only the MCP server. Build the GraphRAG index first with the
-local bootstrap, then mount `output/`. llama.cpp must be reachable from the
-container at `LLAMA_CPP_BASE_URL`.
+The image already contains the GraphRAG index, so end users do not need to
+index locally. llama.cpp must still be reachable from the container at
+`LLAMA_CPP_BASE_URL`. Configure the repository secret `LLAMA_CPP_MODEL` with
+the GGUF path on the self-hosted Windows runner.
 
 ## Layout
 
