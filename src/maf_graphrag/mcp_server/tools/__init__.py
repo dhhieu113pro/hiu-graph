@@ -1,14 +1,14 @@
-"""
-GraphRAG MCP Tools
-
-This package contains MCP tool implementations for GraphRAG:
-- local_search: Entity-focused search
-- global_search: Community/thematic search
-- entity_query: Direct entity lookup
-"""
+"""Retrieval-only MCP tool implementations."""
 
 from maf_graphrag.mcp_server.tools.entity_query import entity_query_tool
-from maf_graphrag.mcp_server.tools.global_search import global_search_tool
-from maf_graphrag.mcp_server.tools.local_search import local_search_tool
+from maf_graphrag.mcp_server.tools.relationships import get_relationships_tool
+from maf_graphrag.mcp_server.tools.retrieval_search import search_entities_tool, semantic_search_tool
+from maf_graphrag.mcp_server.tools.sources import get_sources_tool
 
-__all__ = ["local_search_tool", "global_search_tool", "entity_query_tool"]
+__all__ = [
+    "entity_query_tool",
+    "get_relationships_tool",
+    "get_sources_tool",
+    "search_entities_tool",
+    "semantic_search_tool",
+]
