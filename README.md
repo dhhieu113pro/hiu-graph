@@ -70,6 +70,8 @@ npx @modelcontextprotocol/inspector
 
 Every push to `master` publishes a container to GHCR:
 
+[View the `hiu-graph` package on GitHub Container Registry](https://github.com/dhhieu113pro/hiu-graph/pkgs/container/hiu-graph)
+
 ```powershell
 docker pull ghcr.io/dhhieu113pro/hiu-graph:latest
 docker run --rm -p 8011:8011 `
