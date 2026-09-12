@@ -1,5 +1,7 @@
 # Hiu Graph
 
+[![GHCR Package](https://img.shields.io/badge/GHCR-hiu--graph-2496ED?logo=docker&logoColor=white)](https://github.com/dhhieu113pro/hiu-graph/pkgs/container/hiu-graph)
+
 Local GraphRAG knowledge graph exposed through an MCP server. It uses
 [llama.cpp](https://github.com/ggml-org/llama.cpp) for generation and FastEmbed
 for local embeddings. No Azure or OpenAI service is required.
