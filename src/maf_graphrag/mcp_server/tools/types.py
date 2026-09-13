@@ -1,9 +1,4 @@
-"""
-Shared type definitions and error handling for MCP tool responses.
-
-Provides TypedDicts that document the structure of dicts returned by MCP tools,
-improving type safety at the API boundary.
-"""
+"""Shared type definitions and error handling for retrieval-only MCP responses."""
 
 import functools
 import logging
@@ -14,37 +9,73 @@ from typing_extensions import NotRequired, TypedDict  # noqa: UP035
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Input validation constants (system boundary)
-# ---------------------------------------------------------------------------
 MAX_QUERY_LENGTH = 2000
 MAX_ENTITY_NAME_LENGTH = 200
 MAX_LIMIT = 100
 VALID_COMMUNITY_LEVELS = range(0, 5)
 
 
-class SearchContext(TypedDict):
-    """Context metadata returned by search tools."""
-
-    entities_used: NotRequired[int]
-    relationships_used: NotRequired[int]
-    reports_used: NotRequired[int]
-    communities_analyzed: NotRequired[int]
-    documents: NotRequired[list[str]]
+class SemanticMatch(TypedDict):
+    text_unit_id: str
+    text: str
+    score: float
+    document_ids: NotRequired[list[str]]
 
 
-class SearchResult(TypedDict):
-    """Successful search response from local or global search tools."""
+class SemanticSearchResult(TypedDict):
+    matches: list[SemanticMatch]
+    returned: int
+    query_type: str
 
-    answer: str
-    context: SearchContext
-    sources: NotRequired[list[dict[str, Any]]]
-    search_type: str
+
+class EntitySearchMatch(TypedDict):
+    entity_id: str
+    name: str
+    type: str
+    description: str
+    community_ids: list[Any]
+    score: float
+
+
+class EntitySearchResult(TypedDict):
+    matches: list[EntitySearchMatch]
+    returned: int
+    query_type: str
+
+
+class RelationshipInfo(TypedDict):
+    source: str
+    target: str
+    counterpart: str
+    direction: str
+    description: NotRequired[str]
+    weight: NotRequired[float]
+    combined_degree: NotRequired[float]
+    rank: NotRequired[float]
+
+
+class RelationshipResult(TypedDict):
+    entity: str
+    relationships: list[RelationshipInfo]
+    returned: int
+    query_type: str
+
+
+class SourceInfo(TypedDict):
+    text_unit_id: str
+    document_id: NotRequired[str]
+    document_title: NotRequired[str]
+    text_preview: NotRequired[str]
+
+
+class SourceResult(TypedDict):
+    sources: list[SourceInfo]
+    missing_ids: list[str]
+    returned: int
+    query_type: str
 
 
 class EntityInfo(TypedDict):
-    """Single entity in an entity query response."""
-
     name: str
     type: str
     description: str
@@ -52,8 +83,6 @@ class EntityInfo(TypedDict):
 
 
 class EntityQueryResult(TypedDict):
-    """Successful entity query response."""
-
     entities: list[EntityInfo]
     total_found: int
     returned: int
@@ -62,8 +91,6 @@ class EntityQueryResult(TypedDict):
 
 
 class ToolError(TypedDict):
-    """Error response returned by any MCP tool."""
-
     error: str
     details: NotRequired[str]
     query: NotRequired[str]
@@ -71,13 +98,7 @@ class ToolError(TypedDict):
     entity_type: NotRequired[str | None]
 
 
-# ---------------------------------------------------------------------------
-# Input validation helpers (system boundary)
-# ---------------------------------------------------------------------------
-
-
 def validate_query(query: str) -> ToolError | None:
-    """Return a ``ToolError`` if *query* is invalid, else ``None``."""
     if not query or not query.strip():
         return ToolError(error="Query must not be empty.")
     if len(query) > MAX_QUERY_LENGTH:
@@ -86,21 +107,18 @@ def validate_query(query: str) -> ToolError | None:
 
 
 def validate_community_level(community_level: int | None) -> ToolError | None:
-    """Return a ``ToolError`` if *community_level* is out of range."""
     if community_level is not None and community_level not in VALID_COMMUNITY_LEVELS:
         return ToolError(error=f"community_level must be 0–{VALID_COMMUNITY_LEVELS.stop - 1}.")
     return None
 
 
 def validate_limit(limit: int) -> ToolError | None:
-    """Return a ``ToolError`` if *limit* is out of range."""
     if limit < 1 or limit > MAX_LIMIT:
         return ToolError(error=f"limit must be 1–{MAX_LIMIT}.")
     return None
 
 
 def validate_entity_name(name: str | None) -> ToolError | None:
-    """Return a ``ToolError`` if *name* is too long."""
     if name is not None and len(name) > MAX_ENTITY_NAME_LENGTH:
         return ToolError(error=f"entity_name must be at most {MAX_ENTITY_NAME_LENGTH} characters.")
     return None
@@ -113,14 +131,7 @@ _T = TypeVar("_T")
 def handle_tool_errors(
     tool_name: str,
 ) -> Callable[[Callable[_P, Coroutine[Any, Any, _T]]], Callable[_P, Coroutine[Any, Any, _T | ToolError]]]:
-    """Decorator that wraps MCP tool functions with standard error handling.
-
-    Catches ``FileNotFoundError`` (missing index) and generic exceptions,
-    returning a ``ToolError`` dict so the MCP response stays well-structured.
-
-    Args:
-        tool_name: Human-readable name used in error messages (e.g. "Local search").
-    """
+    """Wrap tool exceptions in the structured MCP ToolError contract."""
 
     def decorator(
         fn: Callable[_P, Coroutine[Any, Any, _T]],

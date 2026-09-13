@@ -101,7 +101,7 @@ def load_all(output_dir: Path | None = None, validate: bool = True) -> GraphData
         output_dir = get_output_dir()
 
     if validate:
-        validate_output_files()
+        validate_output_files(output_dir=output_dir)
 
     # Load required files (GraphRAG 3.x uses simple names without prefix)
     entities = load_parquet("entities.parquet", output_dir)

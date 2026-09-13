@@ -1,124 +1,93 @@
-"""Unit tests for mcp_server/server.py — tool dispatch and app wiring.
-
-All GraphRAG tool functions (local_search_tool, global_search_tool,
-entity_query_tool) are mocked, so these tests exercise only the routing
-and dispatch logic — no Azure OpenAI calls, no real credentials needed.
-"""
+"""Tests for retrieval-only MCP server wiring and dispatch."""
 
 from unittest.mock import AsyncMock, patch
 
-
-class TestSearchKnowledgeGraphDispatch:
-    async def test_local_dispatches_to_local_search_tool(self):
-        from maf_graphrag.mcp_server.server import search_knowledge_graph
-
-        expected = {"answer": "local answer", "context": {}, "search_type": "local"}
-        with patch("maf_graphrag.mcp_server.server.local_search_tool", AsyncMock(return_value=expected)) as mock_local:
-            result = await search_knowledge_graph("Who leads Project Alpha?", search_type="local")
-
-        mock_local.assert_awaited_once_with(
-            query="Who leads Project Alpha?", community_level=2, response_type="Multiple Paragraphs"
-        )
-        assert result is expected
-
-    async def test_global_dispatches_to_global_search_tool(self):
-        from maf_graphrag.mcp_server.server import search_knowledge_graph
-
-        expected = {"answer": "global answer", "context": {}, "search_type": "global"}
-        with patch(
-            "maf_graphrag.mcp_server.server.global_search_tool", AsyncMock(return_value=expected)
-        ) as mock_global:
-            result = await search_knowledge_graph("What are the main themes?", search_type="global")
-
-        mock_global.assert_awaited_once_with(
-            query="What are the main themes?", community_level=2, response_type="Multiple Paragraphs"
-        )
-        assert result is expected
-
-    async def test_search_type_is_case_insensitive(self):
-        from maf_graphrag.mcp_server.server import search_knowledge_graph
-
-        expected = {"answer": "answer", "context": {}, "search_type": "local"}
-        with patch("maf_graphrag.mcp_server.server.local_search_tool", AsyncMock(return_value=expected)):
-            result = await search_knowledge_graph("query", search_type="LOCAL")
-
-        assert result is expected
-
-    async def test_invalid_search_type_returns_tool_error(self):
-        from maf_graphrag.mcp_server.server import search_knowledge_graph
-
-        result = await search_knowledge_graph("query", search_type="hybrid")
-
-        assert "error" in result
-        assert "hybrid" in result["error"]
+from fastmcp import Client
 
 
-class TestLocalSearch:
-    async def test_forwards_arguments_to_local_search_tool(self):
-        from maf_graphrag.mcp_server.server import local_search
+async def test_semantic_search_forwards_to_retrieval_tool():
+    from maf_graphrag.mcp_server.server import semantic_search
 
-        expected = {"answer": "answer", "context": {}, "search_type": "local"}
-        with patch("maf_graphrag.mcp_server.server.local_search_tool", AsyncMock(return_value=expected)) as mock_local:
-            result = await local_search("query", community_level=1, response_type="Single Paragraph")
+    expected = {"matches": [], "returned": 0, "query_type": "semantic_text"}
+    with patch(
+        "maf_graphrag.mcp_server.server.semantic_search_tool",
+        AsyncMock(return_value=expected),
+    ) as tool:
+        result = await semantic_search("database", limit=7)
 
-        mock_local.assert_awaited_once_with("query", 1, "Single Paragraph")
-        assert result is expected
-
-
-class TestGlobalSearch:
-    async def test_forwards_arguments_and_enables_dynamic_community_selection(self):
-        from maf_graphrag.mcp_server.server import global_search
-
-        expected = {"answer": "answer", "context": {}, "search_type": "global"}
-        with patch(
-            "maf_graphrag.mcp_server.server.global_search_tool", AsyncMock(return_value=expected)
-        ) as mock_global:
-            result = await global_search("query", community_level=1, response_type="Single Paragraph")
-
-        mock_global.assert_awaited_once_with("query", 1, "Single Paragraph", dynamic_community_selection=True)
-        assert result is expected
+    tool.assert_awaited_once_with("database", 7)
+    assert result is expected
 
 
-class TestListEntities:
-    async def test_forwards_entity_type_and_limit(self):
-        from maf_graphrag.mcp_server.server import list_entities
+async def test_search_entities_forwards_to_retrieval_tool():
+    from maf_graphrag.mcp_server.server import search_entities
 
-        expected = {"entities": [], "total_found": 0, "returned": 0, "available_types": [], "query_type": "list"}
-        with patch("maf_graphrag.mcp_server.server.entity_query_tool", AsyncMock(return_value=expected)) as mock_query:
-            result = await list_entities(entity_type="person", limit=5)
+    expected = {"matches": [], "returned": 0, "query_type": "semantic_entity"}
+    with patch(
+        "maf_graphrag.mcp_server.server.search_entities_tool",
+        AsyncMock(return_value=expected),
+    ) as tool:
+        result = await search_entities("alpha", limit=4)
 
-        mock_query.assert_awaited_once_with(entity_type="person", limit=5)
-        assert result is expected
-
-    async def test_default_entity_type_is_none(self):
-        from maf_graphrag.mcp_server.server import list_entities
-
-        expected = {"entities": [], "total_found": 0, "returned": 0, "available_types": [], "query_type": "list"}
-        with patch("maf_graphrag.mcp_server.server.entity_query_tool", AsyncMock(return_value=expected)) as mock_query:
-            await list_entities()
-
-        mock_query.assert_awaited_once_with(entity_type=None, limit=10)
+    tool.assert_awaited_once_with("alpha", 4)
+    assert result is expected
 
 
-class TestGetEntity:
-    async def test_looks_up_single_entity_by_name(self):
-        from maf_graphrag.mcp_server.server import get_entity
+async def test_get_entity_forwards_to_entity_query_tool():
+    from maf_graphrag.mcp_server.server import get_entity
 
-        expected = {"entities": [], "total_found": 1, "returned": 1, "available_types": [], "query_type": "lookup"}
-        with patch("maf_graphrag.mcp_server.server.entity_query_tool", AsyncMock(return_value=expected)) as mock_query:
-            result = await get_entity("Dr. Emily Harrison")
+    expected = {"entities": [], "total_found": 0, "returned": 0, "available_types": [], "query_type": "lookup"}
+    with patch("maf_graphrag.mcp_server.server.entity_query_tool", AsyncMock(return_value=expected)) as tool:
+        result = await get_entity("Project Alpha")
 
-        mock_query.assert_awaited_once_with(entity_name="Dr. Emily Harrison", limit=1)
-        assert result is expected
+    tool.assert_awaited_once_with(entity_name="Project Alpha", limit=1)
+    assert result is expected
 
 
-class TestServerWiring:
-    def test_create_mcp_server_returns_configured_instance(self):
-        from maf_graphrag.mcp_server.server import create_mcp_server, mcp
+async def test_get_relationships_forwards_to_relationship_tool():
+    from maf_graphrag.mcp_server.server import get_relationships
 
-        assert create_mcp_server() is mcp
+    expected = {"entity": "Project Alpha", "relationships": [], "returned": 0, "query_type": "relationship_lookup"}
+    with patch("maf_graphrag.mcp_server.server.get_relationships_tool", AsyncMock(return_value=expected)) as tool:
+        result = await get_relationships("Project Alpha", limit=8)
 
-    def test_app_is_configured_asgi_application(self):
-        from maf_graphrag.mcp_server.server import app
+    tool.assert_awaited_once_with("Project Alpha", 8)
+    assert result is expected
 
-        assert callable(app)
+
+async def test_get_sources_forwards_to_source_tool():
+    from maf_graphrag.mcp_server.server import get_sources
+
+    expected = {"sources": [], "missing_ids": [], "returned": 0, "query_type": "source_lookup"}
+    with patch("maf_graphrag.mcp_server.server.get_sources_tool", AsyncMock(return_value=expected)) as tool:
+        result = await get_sources(["tu-1"], limit=6)
+
+    tool.assert_awaited_once_with(["tu-1"], 6)
+    assert result is expected
+
+
+async def test_advertised_tools_are_retrieval_only():
+    from maf_graphrag.mcp_server.server import mcp
+
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+
+    assert {tool.name for tool in tools} == {
+        "semantic_search",
+        "search_entities",
+        "get_entity",
+        "get_relationships",
+        "get_sources",
+    }
+
+
+def test_create_mcp_server_returns_configured_instance():
+    from maf_graphrag.mcp_server.server import create_mcp_server, mcp
+
+    assert create_mcp_server() is mcp
+
+
+def test_app_is_configured_asgi_application():
+    from maf_graphrag.mcp_server.server import app
+
+    assert callable(app)
