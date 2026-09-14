@@ -98,9 +98,11 @@ npx @modelcontextprotocol/inspector
 
 [View the `hiu-graph` package on GitHub Container Registry](https://github.com/dhhieu113pro/hiu-graph/pkgs/container/hiu-graph)
 
+Build the container image with Docker:
+
 ```powershell
-docker login ghcr.io
-.\publish_container.ps1
+docker build --tag ghcr.io/dhhieu113pro/hiu-graph:latest .
+docker push ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
 
 End users can run an image that already contains a valid index without a completion-model endpoint:
@@ -145,9 +147,9 @@ output/                                  generated Parquet and LanceDB index
 bootstrap_local.ps1                      llama.cpp + index + MCP bootstrap
 docker_entrypoint.py                     container index check + first-run bootstrap
 run_mcp_server.py                        FastMCP entry point
-src/maf_graphrag/core/                   indexing and optional generative search
-src/maf_graphrag/mcp_server/retrieval/  FastEmbed + LanceDB retrieval adapters
-src/maf_graphrag/mcp_server/tools/       retrieval-only MCP tools
+src/hiu_graph/core/                      indexing and optional generative search
+src/hiu_graph/mcp_server/retrieval/      FastEmbed + LanceDB retrieval adapters
+src/hiu_graph/mcp_server/tools/          retrieval-only MCP tools
 ```
 
 ## License
