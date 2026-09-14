@@ -6,7 +6,7 @@ import docker_entrypoint
 
 
 class DockerEntrypointHealthTests(unittest.TestCase):
-    @patch.object(docker_entrypoint, "time.sleep")
+    @patch.object(docker_entrypoint.time, "sleep")
     @patch.object(docker_entrypoint.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
     @patch.object(docker_entrypoint, "urlopen", side_effect=URLError("connection refused"))
     def test_wait_for_llama_cpp_surfaces_connection_error(
@@ -18,7 +18,7 @@ class DockerEntrypointHealthTests(unittest.TestCase):
         self.assertIn("2 attempts", str(context.exception))
         self.assertEqual(urlopen.call_count, 2)
 
-    @patch.object(docker_entrypoint, "time.sleep")
+    @patch.object(docker_entrypoint.time, "sleep")
     @patch.object(docker_entrypoint.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
     @patch.object(
         docker_entrypoint,
