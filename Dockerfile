@@ -15,6 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MCP_HOST=0.0.0.0 \
     MCP_PORT=8011 \
     GRAPHRAG_ROOT=/app \
+    LLAMA_CPP_BASE_URL=http://host.docker.internal:8080 \
     FASTEMBED_MODEL_NAME=BAAI/bge-small-en-v1.5 \
     FASTEMBED_CACHE_DIR=/data/fastembed
 
