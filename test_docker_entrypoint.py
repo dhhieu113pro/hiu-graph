@@ -51,6 +51,27 @@ class DockerEntrypointTests(unittest.TestCase):
 
     @patch.object(docker_entrypoint, "run_indexing")
     @patch.object(docker_entrypoint, "wait_for_llama_cpp")
+    def test_prepare_index_uses_docker_host_default(self, wait_for_llama_cpp, run_indexing) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def fake_indexing(_root: Path) -> None:
+                self._ready_root(root)
+
+            run_indexing.side_effect = fake_indexing
+
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LLAMA_CPP_BASE_URL", None)
+                os.environ.pop("HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS", None)
+                docker_entrypoint.prepare_index(root)
+
+            wait_for_llama_cpp.assert_called_once_with(
+                docker_entrypoint.DEFAULT_LLAMA_CPP_BASE_URL, 300.0
+            )
+            run_indexing.assert_called_once_with(root)
+
+    @patch.object(docker_entrypoint, "run_indexing")
+    @patch.object(docker_entrypoint, "wait_for_llama_cpp")
     def test_prepare_index_skips_ready_index(self, wait_for_llama_cpp, run_indexing) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

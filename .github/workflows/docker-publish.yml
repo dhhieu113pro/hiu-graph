@@ -66,6 +66,11 @@ jobs:
             hiu-graph:smoke \
             python -m unittest test_docker_entrypoint.py -v
 
+      - name: Verify Docker llama.cpp endpoint default
+        run: |
+          test "$(docker run --rm hiu-graph:smoke python -c 'import os; print(os.environ["LLAMA_CPP_BASE_URL"])')" \
+            = "http://host.docker.internal:8080"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

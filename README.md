@@ -116,7 +116,7 @@ docker run --rm -p 8011:8011 `
 
 On startup the container checks the GraphRAG index. If all required index artifacts are already present, MCP starts immediately and does not check llama.cpp. If the index is missing or an empty `/app/output` mount hides the baked index, Hiu Graph waits for `LLAMA_CPP_BASE_URL`, builds the index from `/app/input`, verifies the generated artifacts, and only then starts MCP.
 
-For first-run indexing with a truly empty output volume, provide the local llama.cpp endpoint/model settings:
+For first-run indexing with llama.cpp running on the Docker host, the Docker image defaults `LLAMA_CPP_BASE_URL` to `http://host.docker.internal:8080`. You can override it when llama.cpp runs elsewhere:
 
 ```powershell
 docker run --rm -p 8011:8011 `
@@ -127,6 +127,10 @@ docker run --rm -p 8011:8011 `
   -v hiu-graph-fastembed:/data/fastembed `
   ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
+
+On Docker Desktop, `host.docker.internal` resolves to the host automatically. On Linux Docker Engine, add `--add-host=host.docker.internal:host-gateway` if your environment does not provide that hostname, or set `LLAMA_CPP_BASE_URL` to another reachable endpoint/container name.
+
+`127.0.0.1` inside the Hiu Graph container refers to the Hiu Graph container itself, not the Docker host. This is why the container default is `host.docker.internal` rather than `127.0.0.1`.
 
 `HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS` controls how long first-run startup waits for llama.cpp and defaults to `300` seconds. Later runs reuse the generated index and MCP queries remain independent of llama.cpp.
 
