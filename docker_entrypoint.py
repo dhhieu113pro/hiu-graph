@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 REQUIRED_INDEX_PATHS = (
@@ -20,6 +22,7 @@ REQUIRED_INDEX_PATHS = (
 )
 
 DEFAULT_LLAMA_CPP_BASE_URL = "http://host.docker.internal:8080"
+logger = logging.getLogger(__name__)
 
 
 def index_is_ready(root: Path) -> bool:
@@ -28,30 +31,54 @@ def index_is_ready(root: Path) -> bool:
     return all((root / relative_path).exists() for relative_path in REQUIRED_INDEX_PATHS)
 
 
-def wait_for_llama_cpp(base_url: str, timeout_seconds: float) -> None:
-    """Wait until the configured llama.cpp health endpoint returns HTTP 200."""
+def wait_for_llama_cpp(base_url: str, timeout_seconds: float, poll_interval: float = 2.0) -> None:
+    """Poll llama.cpp health until it returns HTTP 200 or the timeout expires."""
 
     health_url = f"{base_url.rstrip('/')}/health"
     deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    last_error: Exception | None = None
+
     print(f"GraphRAG index is missing; waiting for llama.cpp at {health_url}...", flush=True)
 
-    while True:
+    while time.monotonic() < deadline:
+        attempt += 1
         try:
-            with urlopen(health_url, timeout=2) as response:
+            with urlopen(health_url, timeout=5) as response:
                 if response.status == 200:
+                    logger.info(
+                        "llama.cpp ready at %s after %d attempt(s)", health_url, attempt
+                    )
                     print("llama.cpp is ready.", flush=True)
                     return
-        except (URLError, TimeoutError, OSError):
-            pass
+                last_error = RuntimeError(f"HTTP {response.status} from {health_url}")
+        except HTTPError as exc:
+            last_error = exc
+        except (URLError, socket.timeout, TimeoutError, OSError) as exc:
+            last_error = exc
 
-        now = time.monotonic()
-        if now >= deadline:
-            raise RuntimeError(
-                f"llama.cpp did not become ready at {health_url} within {timeout_seconds:g} seconds. "
-                "For Docker, set LLAMA_CPP_BASE_URL to the reachable llama.cpp endpoint "
-                "(for example http://host.docker.internal:8080)."
+        remaining = int(deadline - time.monotonic())
+        if attempt % 5 == 0 or remaining <= 10:
+            logger.warning(
+                "Still waiting for llama.cpp at %s (attempt %d, ~%ds left): %s",
+                health_url,
+                attempt,
+                max(remaining, 0),
+                last_error,
             )
-        time.sleep(min(2.0, deadline - now))
+
+        sleep_for = min(poll_interval, max(deadline - time.monotonic(), 0))
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+
+    raise RuntimeError(
+        f"llama.cpp did not become ready at {health_url} within {timeout_seconds:g}s "
+        f"({attempt} attempts). Last error: {last_error!r}. "
+        "For Docker, verify LLAMA_CPP_BASE_URL is reachable from inside the container "
+        "(for example http://host.docker.internal:8080) and that llama-server is bound "
+        "to 0.0.0.0, not 127.0.0.1 only. On native Linux Docker, add "
+        "--add-host=host.docker.internal:host-gateway."
+    ) from last_error
 
 
 def run_indexing(root: Path) -> None:
