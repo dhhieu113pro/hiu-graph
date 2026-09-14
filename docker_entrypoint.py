@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import socket
 import subprocess
 import sys
@@ -21,7 +22,10 @@ REQUIRED_INDEX_PATHS = (
     Path("output/lancedb"),
 )
 
-DEFAULT_LLAMA_CPP_BASE_URL = "http://host.docker.internal:8080"
+DEFAULT_LLAMA_CPP_BINARY = "/usr/local/bin/llama-server"
+DEFAULT_LLAMA_CPP_BASE_URL = "http://127.0.0.1:8080"
+DEFAULT_EXTERNAL_LLAMA_CPP_BASE_URL = "http://host.docker.internal:8080"
+DEFAULT_LLAMA_CPP_MODEL_NAME = "local-gemma"
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +84,57 @@ def wait_for_llama_cpp(base_url: str, timeout_seconds: float, poll_interval: flo
     ) from last_error
 
 
+def build_llama_command(model_path: str, model_name: str) -> list[str]:
+    """Build the llama-server command used for Docker first-run indexing."""
+
+    command = [
+        os.getenv("LLAMA_CPP_BINARY", DEFAULT_LLAMA_CPP_BINARY),
+        "--model",
+        model_path,
+        "--host",
+        os.getenv("LLAMA_CPP_HOST", "0.0.0.0"),
+        "--port",
+        os.getenv("LLAMA_CPP_PORT", "8080"),
+        "--alias",
+        model_name,
+    ]
+
+    extra_args = os.getenv("LLAMA_CPP_EXTRA_ARGS", "")
+    if extra_args:
+        command.extend(shlex.split(extra_args))
+
+    return command
+
+
+def start_llama_cpp(model_path: str, model_name: str) -> subprocess.Popen:
+    """Start the bundled llama-server process for first-run indexing."""
+
+    command = build_llama_command(model_path, model_name)
+    print(f"Starting bundled llama.cpp: {' '.join(command)}", flush=True)
+    try:
+        return subprocess.Popen(command)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"llama.cpp server binary was not found at {command[0]}. "
+            "Set LLAMA_CPP_BINARY to a valid llama-server executable."
+        ) from exc
+
+
+def stop_llama_cpp(process: subprocess.Popen) -> None:
+    """Stop the temporary llama.cpp process after indexing."""
+
+    if process.poll() is not None:
+        return
+
+    print("Stopping temporary llama.cpp after indexing...", flush=True)
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
 def run_indexing(root: Path) -> None:
     """Run the existing Hiu Graph indexing module in the GraphRAG root."""
 
@@ -98,16 +153,35 @@ def prepare_index(root: Path) -> None:
         print("GraphRAG index is ready; skipping indexing.", flush=True)
         return
 
-    base_url = os.getenv("LLAMA_CPP_BASE_URL", DEFAULT_LLAMA_CPP_BASE_URL)
+    autostart = os.getenv("LLAMA_CPP_AUTOSTART", "true").strip().lower() in {"1", "true", "yes", "on"}
+    base_url = os.getenv(
+        "LLAMA_CPP_BASE_URL",
+        DEFAULT_LLAMA_CPP_BASE_URL if autostart else DEFAULT_EXTERNAL_LLAMA_CPP_BASE_URL,
+    )
     timeout_seconds = float(os.getenv("HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS", "300"))
+    llama_process: subprocess.Popen | None = None
 
-    wait_for_llama_cpp(base_url, timeout_seconds)
-    run_indexing(root)
+    try:
+        if autostart:
+            model_path = os.getenv("LLAMA_CPP_MODEL", "").strip()
+            if not model_path:
+                raise RuntimeError(
+                    "LLAMA_CPP_MODEL is required when LLAMA_CPP_AUTOSTART is enabled. "
+                    "Mount a GGUF model into the container and set LLAMA_CPP_MODEL to its path."
+                )
+            model_name = os.getenv("LLAMA_CPP_MODEL_NAME", DEFAULT_LLAMA_CPP_MODEL_NAME)
+            llama_process = start_llama_cpp(model_path, model_name)
 
-    if not index_is_ready(root):
-        raise RuntimeError("GraphRAG index is incomplete after indexing; MCP will not start")
+        wait_for_llama_cpp(base_url, timeout_seconds)
+        run_indexing(root)
 
-    print("GraphRAG indexing completed successfully.", flush=True)
+        if not index_is_ready(root):
+            raise RuntimeError("GraphRAG index is incomplete after indexing; MCP will not start")
+
+        print("GraphRAG indexing completed successfully.", flush=True)
+    finally:
+        if llama_process is not None:
+            stop_llama_cpp(llama_process)
 
 
 def main() -> None:

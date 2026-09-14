@@ -66,10 +66,17 @@ jobs:
             hiu-graph:smoke \
             python -m unittest test_docker_entrypoint.py tests.test_docker_entrypoint_health -v
 
-      - name: Verify Docker llama.cpp endpoint default
+      - name: Verify bundled llama.cpp server
         run: |
+          docker run --rm hiu-graph:smoke /usr/local/bin/llama-server --version
+
+      - name: Verify Docker llama.cpp defaults
+        run: |
+          test "$(docker run --rm hiu-graph:smoke python -c 'import os; print(os.environ["LLAMA_CPP_AUTOSTART"])')" = "true"
           test "$(docker run --rm hiu-graph:smoke python -c 'import os; print(os.environ["LLAMA_CPP_BASE_URL"])')" \
-            = "http://host.docker.internal:8080"
+            = "http://127.0.0.1:8080"
+          test "$(docker run --rm hiu-graph:smoke python -c 'import os; print(os.environ["LLAMA_CPP_BINARY"])')" \
+            = "/usr/local/bin/llama-server"
 
       - name: Build and push
         uses: docker/build-push-action@v6

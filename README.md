@@ -24,7 +24,7 @@ Gemma/llama.cpp is therefore required to create or rebuild the GraphRAG index, b
 - Windows PowerShell
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
-- `llama-server.exe` on `PATH` for indexing/re-indexing
+- `llama-server.exe` on `PATH` for local indexing/re-indexing
 - A local GGUF model for indexing. The tested model is Gemma 3 4B Q4_K_M:
   `ggml-org/gemma-3-4b-it-GGUF:Q4_K_M`
 
@@ -105,21 +105,27 @@ docker build --tag ghcr.io/dhhieu113pro/hiu-graph:latest .
 docker push ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
 
-End users can run an image that already contains a valid index without a completion-model endpoint:
+The Docker image includes a pinned Linux `llama-server` binary. On first startup, if the GraphRAG index is missing, the entrypoint starts that server, waits for `/health`, builds the index, verifies every required artifact, stops the temporary llama.cpp process, and then starts MCP. If the index already exists, llama.cpp is not started.
+
+Provide a GGUF model by mounting a host directory into the container:
 
 ```powershell
-docker pull ghcr.io/dhhieu113pro/hiu-graph:latest
 docker run --rm -p 8011:8011 `
+  -v C:\models:/models:ro `
+  -e LLAMA_CPP_MODEL=/models/gemma-3-4b-it-Q4_K_M.gguf `
+  -v hiu-graph-output:/app/output `
+  -v hiu-graph-cache:/app/cache `
   -v hiu-graph-fastembed:/data/fastembed `
   ghcr.io/dhhieu113pro/hiu-graph:latest
 ```
 
-On startup the container checks the GraphRAG index. If all required index artifacts are already present, MCP starts immediately and does not check llama.cpp. If the index is missing or an empty `/app/output` mount hides the baked index, Hiu Graph waits for `LLAMA_CPP_BASE_URL`, builds the index from `/app/input`, verifies the generated artifacts, and only then starts MCP.
+`LLAMA_CPP_MODEL_NAME` defaults to `local-gemma`. Use `LLAMA_CPP_EXTRA_ARGS` for llama.cpp tuning, for example `--ctx-size 4096 --parallel 1`. The bundled server is the Linux CPU build; use an external GPU-enabled llama.cpp endpoint when you need host GPU acceleration.
 
-For first-run indexing with llama.cpp running on the Docker host, the Docker image defaults `LLAMA_CPP_BASE_URL` to `http://host.docker.internal:8080`. You can override it when llama.cpp runs elsewhere:
+To use a separately managed llama.cpp service instead of the bundled server, disable auto-start and point Hiu Graph at the reachable endpoint:
 
 ```powershell
 docker run --rm -p 8011:8011 `
+  -e LLAMA_CPP_AUTOSTART=false `
   -e LLAMA_CPP_BASE_URL=http://host.docker.internal:8080 `
   -e LLAMA_CPP_MODEL_NAME=local-gemma `
   --mount type=volume,src=hiu-graph-output,dst=/app/output,volume-nocopy `
@@ -130,7 +136,7 @@ docker run --rm -p 8011:8011 `
 
 On Docker Desktop, `host.docker.internal` resolves to the host automatically. On Linux Docker Engine, add `--add-host=host.docker.internal:host-gateway` if your environment does not provide that hostname, or set `LLAMA_CPP_BASE_URL` to another reachable endpoint/container name.
 
-`127.0.0.1` inside the Hiu Graph container refers to the Hiu Graph container itself, not the Docker host. This is why the container default is `host.docker.internal` rather than `127.0.0.1`.
+`127.0.0.1` inside the Hiu Graph container refers to the Hiu Graph container itself. It is used by default only because the bundled llama.cpp server runs in the same container. For an external server, set `LLAMA_CPP_AUTOSTART=false` and provide its reachable URL.
 
 `HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS` controls how long first-run startup waits for llama.cpp and defaults to `300` seconds. Later runs reuse the generated index and MCP queries remain independent of llama.cpp.
 
