@@ -60,11 +60,9 @@ class DockerEntrypointTests(unittest.TestCase):
 
             run_indexing.side_effect = fake_indexing
 
-            with patch.dict(
-                os.environ,
-                {"LLAMA_CPP_BASE_URL": ""},
-                clear=False,
-            ):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LLAMA_CPP_BASE_URL", None)
+                os.environ.pop("HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS", None)
                 docker_entrypoint.prepare_index(root)
 
             wait_for_llama_cpp.assert_called_once_with(
