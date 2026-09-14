@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import docker_entrypoint
 
@@ -22,22 +22,68 @@ class DockerEntrypointTests(unittest.TestCase):
             self._ready_root(root)
             self.assertTrue(docker_entrypoint.index_is_ready(root))
 
-    @patch.object(docker_entrypoint, "run_indexing")
+    def test_build_llama_command_uses_model_and_server_defaults(self) -> None:
+        with patch.dict(os.environ, {"LLAMA_CPP_PORT": "8080"}, clear=False):
+            self.assertEqual(
+                docker_entrypoint.build_llama_command("/models/model.gguf", "local-gemma"),
+                [
+                    docker_entrypoint.DEFAULT_LLAMA_CPP_BINARY,
+                    "--model",
+                    "/models/model.gguf",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8080",
+                    "--alias",
+                    "local-gemma",
+                ],
+            )
+
     @patch.object(docker_entrypoint, "wait_for_llama_cpp")
-    def test_prepare_index_waits_and_indexes_when_missing(
-        self, wait_for_llama_cpp, run_indexing
+    @patch.object(docker_entrypoint, "run_indexing")
+    @patch.object(docker_entrypoint, "start_llama_cpp")
+    def test_prepare_index_autostarts_llama_and_stops_it_after_indexing(
+        self, start_llama_cpp, run_indexing, wait_for_llama_cpp
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-
-            def fake_indexing(_root: Path) -> None:
-                self._ready_root(root)
-
-            run_indexing.side_effect = fake_indexing
+            process = Mock()
+            process.poll.return_value = None
+            start_llama_cpp.return_value = process
+            run_indexing.side_effect = lambda _root: self._ready_root(root)
 
             with patch.dict(
                 os.environ,
                 {
+                    "LLAMA_CPP_AUTOSTART": "true",
+                    "LLAMA_CPP_MODEL": "/models/model.gguf",
+                    "LLAMA_CPP_MODEL_NAME": "local-gemma",
+                },
+                clear=False,
+            ):
+                docker_entrypoint.prepare_index(root)
+
+            start_llama_cpp.assert_called_once_with("/models/model.gguf", "local-gemma")
+            wait_for_llama_cpp.assert_called_once_with(
+                docker_entrypoint.DEFAULT_LLAMA_CPP_BASE_URL, 300.0
+            )
+            run_indexing.assert_called_once_with(root)
+            process.terminate.assert_called_once_with()
+            process.wait.assert_called_once_with(timeout=10)
+
+    @patch.object(docker_entrypoint, "run_indexing")
+    @patch.object(docker_entrypoint, "wait_for_llama_cpp")
+    def test_prepare_index_waits_on_external_llama_when_autostart_disabled(
+        self, wait_for_llama_cpp, run_indexing
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_indexing.side_effect = lambda _root: self._ready_root(root)
+
+            with patch.dict(
+                os.environ,
+                {
+                    "LLAMA_CPP_AUTOSTART": "false",
                     "LLAMA_CPP_BASE_URL": "http://llama-cpp:8080",
                     "HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS": "42",
                 },
@@ -47,28 +93,21 @@ class DockerEntrypointTests(unittest.TestCase):
 
             wait_for_llama_cpp.assert_called_once_with("http://llama-cpp:8080", 42.0)
             run_indexing.assert_called_once_with(root)
-            self.assertTrue(docker_entrypoint.index_is_ready(root))
 
-    @patch.object(docker_entrypoint, "run_indexing")
     @patch.object(docker_entrypoint, "wait_for_llama_cpp")
-    def test_prepare_index_uses_docker_host_default(self, wait_for_llama_cpp, run_indexing) -> None:
+    @patch.object(docker_entrypoint, "start_llama_cpp")
+    def test_prepare_index_requires_model_when_autostart_enabled(
+        self, start_llama_cpp, wait_for_llama_cpp
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            with patch.dict(os.environ, {"LLAMA_CPP_AUTOSTART": "true"}, clear=False):
+                os.environ.pop("LLAMA_CPP_MODEL", None)
+                with self.assertRaisesRegex(RuntimeError, "LLAMA_CPP_MODEL"):
+                    docker_entrypoint.prepare_index(root)
 
-            def fake_indexing(_root: Path) -> None:
-                self._ready_root(root)
-
-            run_indexing.side_effect = fake_indexing
-
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("LLAMA_CPP_BASE_URL", None)
-                os.environ.pop("HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS", None)
-                docker_entrypoint.prepare_index(root)
-
-            wait_for_llama_cpp.assert_called_once_with(
-                docker_entrypoint.DEFAULT_LLAMA_CPP_BASE_URL, 300.0
-            )
-            run_indexing.assert_called_once_with(root)
+            start_llama_cpp.assert_not_called()
+            wait_for_llama_cpp.assert_not_called()
 
     @patch.object(docker_entrypoint, "run_indexing")
     @patch.object(docker_entrypoint, "wait_for_llama_cpp")
@@ -89,9 +128,9 @@ class DockerEntrypointTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-
-            with self.assertRaisesRegex(RuntimeError, "index is incomplete"):
-                docker_entrypoint.prepare_index(root)
+            with patch.dict(os.environ, {"LLAMA_CPP_AUTOSTART": "false"}, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "index is incomplete"):
+                    docker_entrypoint.prepare_index(root)
 
             wait_for_llama_cpp.assert_called_once()
             run_indexing.assert_called_once_with(root)
