@@ -19,6 +19,8 @@ REQUIRED_INDEX_PATHS = (
     Path("output/lancedb"),
 )
 
+DEFAULT_LLAMA_CPP_BASE_URL = "http://host.docker.internal:8080"
+
 
 def index_is_ready(root: Path) -> bool:
     """Return whether every artifact required by the MCP runtime exists."""
@@ -45,7 +47,9 @@ def wait_for_llama_cpp(base_url: str, timeout_seconds: float) -> None:
         now = time.monotonic()
         if now >= deadline:
             raise RuntimeError(
-                f"llama.cpp did not become ready at {health_url} within {timeout_seconds:g} seconds"
+                f"llama.cpp did not become ready at {health_url} within {timeout_seconds:g} seconds. "
+                "For Docker, set LLAMA_CPP_BASE_URL to the reachable llama.cpp endpoint "
+                "(for example http://host.docker.internal:8080)."
             )
         time.sleep(min(2.0, deadline - now))
 
@@ -68,7 +72,7 @@ def prepare_index(root: Path) -> None:
         print("GraphRAG index is ready; skipping indexing.", flush=True)
         return
 
-    base_url = os.getenv("LLAMA_CPP_BASE_URL", "http://127.0.0.1:8080")
+    base_url = os.getenv("LLAMA_CPP_BASE_URL", DEFAULT_LLAMA_CPP_BASE_URL)
     timeout_seconds = float(os.getenv("HIU_GRAPH_LLM_WAIT_TIMEOUT_SECONDS", "300"))
 
     wait_for_llama_cpp(base_url, timeout_seconds)
