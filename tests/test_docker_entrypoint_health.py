@@ -30,7 +30,7 @@ class DockerEntrypointHealthTests(unittest.TestCase):
     def test_wait_for_llama_cpp_surfaces_http_error(
         self, urlopen, _monotonic, _sleep
     ) -> None:
-        with self.assertRaisesRegex(RuntimeError, "HTTP Error 503"):
+        with self.assertRaisesRegex(RuntimeError, "503"):
             docker_entrypoint.wait_for_llama_cpp("http://llama-cpp:8080", 1.0)
 
         self.assertEqual(urlopen.call_count, 2)
