@@ -27,7 +27,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FASTEMBED_CACHE_DIR=/data/fastembed
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl tar \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && curl -fsSL -o /tmp/llama.cpp.tar.gz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_VERSION}/${LLAMA_CPP_ARCHIVE}" \
     && echo "${LLAMA_CPP_SHA256}  /tmp/llama.cpp.tar.gz" | sha256sum -c - \
     && mkdir -p /tmp/llama.cpp \
@@ -35,7 +35,7 @@ RUN apt-get update \
     && find /tmp/llama.cpp -type f -name llama-server -exec install -m 0755 {} /usr/local/bin/llama-server \; \
     && test -x /usr/local/bin/llama-server \
     && rm -rf /tmp/llama.cpp /tmp/llama.cpp.tar.gz \
-    && apt-get purge -y --auto-remove curl tar \
+    && apt-get purge -y --auto-remove curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=source /context/pyproject.toml /context/uv.lock ./
