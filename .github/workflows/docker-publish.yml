@@ -64,7 +64,7 @@ jobs:
             --mount type=bind,src="$PWD",dst=/workspace,readonly \
             --workdir /workspace \
             hiu-graph:smoke \
-            python -m unittest test_docker_entrypoint.py -v
+            python -m unittest test_docker_entrypoint.py tests.test_docker_entrypoint_health -v
 
       - name: Verify Docker llama.cpp endpoint default
         run: |
