@@ -7,7 +7,7 @@ import docker_entrypoint
 
 class DockerEntrypointHealthTests(unittest.TestCase):
     @patch.object(docker_entrypoint, "time.sleep")
-    @patch.object(docker_entrypoint, "time.monotonic", side_effect=[0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
+    @patch.object(docker_entrypoint.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
     @patch.object(docker_entrypoint, "urlopen", side_effect=URLError("connection refused"))
     def test_wait_for_llama_cpp_surfaces_connection_error(
         self, urlopen, _monotonic, _sleep
@@ -19,7 +19,7 @@ class DockerEntrypointHealthTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
 
     @patch.object(docker_entrypoint, "time.sleep")
-    @patch.object(docker_entrypoint, "time.monotonic", side_effect=[0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
+    @patch.object(docker_entrypoint.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
     @patch.object(
         docker_entrypoint,
         "urlopen",
@@ -36,7 +36,7 @@ class DockerEntrypointHealthTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
 
     @patch.object(docker_entrypoint, "urlopen")
-    @patch.object(docker_entrypoint, "time.monotonic", return_value=0.0)
+    @patch.object(docker_entrypoint.time, "monotonic", return_value=0.0)
     def test_wait_for_llama_cpp_returns_when_health_is_200(self, _monotonic, urlopen) -> None:
         response = urlopen.return_value.__enter__.return_value
         response.status = 200
